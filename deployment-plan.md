@@ -138,16 +138,17 @@ Alternative: commit a filled `web/config.js` (see `web/config.example.js`).
 ### Phase 4 — Vercel (latest frontend)
 
 1. Vercel → **Add New** → **Project** → import the **same** GitHub repo.
-2. Configure:
+2. Configure (repo-root deploy is OK — `vercel.json` + `.vercelignore` force static `web/`):
 
 | Setting | Value |
 |---------|--------|
-| **Root Directory** | `web` |
-| **Framework Preset** | Other |
-| **Build Command** | `npm run build` (default from `package.json`) |
-| **Output Directory** | *(default / empty — serves `web/` static files)* |
-| **Install Command** | `npm install` (default; no deps required) |
+| **Root Directory** | `.` (repo root) **or** `web` |
+| **Framework Preset** | **Other** (do **not** pick FastAPI — API is on Railway) |
+| **Build Command** | From root `vercel.json`: `npm run build --prefix web` |
+| **Output Directory** | `web` |
 | **Env** | `AAS_API_BASE` = Railway HTTPS origin |
+
+If Vercel errors with “No FastAPI entrypoint” / dual `chat`+`voice` apps: set Framework to **Other**, ensure Root Directory is not forcing Python, Redeploy. Do **not** add `[tool.vercel] entrypoint` in `pyproject.toml` (that would host the API on Vercel).
 
 3. Deploy → note `https://<project>.vercel.app` (or custom domain).
 4. Back on Railway, set:

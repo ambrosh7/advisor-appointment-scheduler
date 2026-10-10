@@ -1,0 +1,24 @@
+# Vercel hosts only the static voice UI. FastAPI runs on Railway.
+# Ignore Python so Vercel does not auto-detect FastAPI / dual entrypoints.
+src/
+tests/
+*.py
+!web/**/*.js
+requirements.txt
+pyproject.toml
+setup.cfg
+setup.py
+Dockerfile
+railway.toml
+render.yaml
+docs/
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+.env
+credentials.json
+token.json
+service-account.json
+stitch_advisor_appointment_scheduler_chat/

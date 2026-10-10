@@ -52,12 +52,12 @@ Manual override (local or commit): see `web/config.example.js`.
 ## 3. Vercel — frontend
 
 1. [vercel.com](https://vercel.com) → **Add New** → **Project** → import the same GitHub repo
-2. **Root Directory**: `web`
-3. Framework Preset: **Other**
+2. Framework Preset: **Other** (not FastAPI — backend is Railway)
+3. Root Directory: repo root (uses root `vercel.json`) **or** `web`
 4. Ensure `AAS_API_BASE` is set (Production + Preview if needed)
 5. Deploy
 
-`web/vercel.json` maps `/static/*` → files in `web/` so asset URLs keep working.
+Root `vercel.json` + `.vercelignore` keep Vercel from auto-detecting the FastAPI apps under `src/api/`. `/static/*` rewrites map to files in `web/`.
 
 ## 4. Verify
 

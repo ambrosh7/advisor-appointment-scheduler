@@ -32,9 +32,9 @@ Leave `web/config.js` `AAS_API_BASE` empty for same-origin local use.
    - Set variables from `.env.example` (`GEMINI_*`, `GOOGLE_*`, `MCP_*`, `APP_ENV=production`, etc.).
    - Generate a public domain; confirm `GET /health` → `"status":"ok"`.
 3. **Vercel** — import the same repo.
-   - Root Directory: `web`
+   - Framework: **Other** (not FastAPI)
    - Env: `AAS_API_BASE=https://<your-service>.up.railway.app`
-   - Build runs `npm run build` → writes `config.js` via `inject-api-base.js`
+   - Root `vercel.json` builds/serves `web/` (static only; API stays on Railway)
 4. **Railway** — set `CORS_ORIGINS=https://<your-project>.vercel.app`
 5. Open the Vercel URL and smoke: Acknowledge → Name → Book → Confirm.
 
