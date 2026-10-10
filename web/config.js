@@ -1,4 +1,4 @@
-// Empty = same origin (local uvicorn / Railway serving UI).
-// On Vercel: set project env AAS_API_BASE to the Railway HTTPS URL;
-// `npm run build` runs inject-api-base.js and overwrites this file.
-window.AAS_API_BASE = "";
+// Production API (Railway). Vercel build may overwrite via inject-api-base.js.
+// For local same-origin with uvicorn, temporarily set this to "".
+window.AAS_API_BASE =
+  "https://advisor-appointment-scheduler-production.up.railway.app";
