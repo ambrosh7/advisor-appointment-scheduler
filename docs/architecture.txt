@@ -1,0 +1,486 @@
+Voice Agent Architecture: Advisor Appointment Scheduler
+This document describes the system architecture for the compliant pre-booking voice assistant described in description.md and problemStatement.md.
+For modules, APIs, state-machine details, and a phased build plan, see architecture-low-level.md.
+Development strategy: chat first, voice second
+We implement and validate all product behavior in text (chat) mode first, then add voice without changing the core conversation logic.
+Core (text-in, text-out): The orchestrator, NLU, domain rules, MCP side effects, and compliance gates operate on user text and produce assistant text (one or more messages per turn). This is the same code path whether the UI is a chat widget, CLI, or API.
+Chat surface (milestones 1–N): A chat UI or POST …/message API exercises every intent, state transition, waitlist path, and MCP integration. Automated and manual tests run here fastest.
+Voice later: Speech-to-text supplies the same string the chat would send into handle(user_text, session). Text-to-speech reads the assistant strings the chat would display. No duplicate business logic in the voice layer—only I/O adapters and voice-specific UX (barge-in, spelling of booking codes, end-of-utterance detection).
+End-state UX remains a voice agent; chat is the authoritative development and test harness until voice adapters are plugged in.
+1. Goals and boundaries
+Goal
+Mechanism
+Tentative booking with human advisor
+Domain slot picker + Google Calendar MCP tentative hold
+No PII in-session
+Structured slot filling only; no capture of phone, email, or account identifiers (chat or voice)
+Compliance
+Scripted disclaimer; refuse investment advice; educational links only
+Orchestration
+FastMCP server wrapping Google APIs: Calendar (holds), Docs (pre-booking log), Gmail (approval-gated draft)
+
+Out of scope in-session: Collecting contact details (handled via secure URL after the session).
+
+2. Logical architecture (layers)
+Build order: implement everything below the dashed line using chat (text in → text out). Add everything above the dashed line only after the chat path is complete.
+┌─────────────────────────────────────────────────────────────────┐
+│  Voice adapters (later): telephony / WebRTC + STT → text, TTS ← text │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │ text only
+┌─────────────────────────────▼───────────────────────────────────┐
+│  Chat channel (first): web UI, CLI, or HTTP message API          │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │ user_text / assistant_messages
+- - - - - - - - - - - - - - - ┼ - - - - - - - - - - - - - - - - - - 
+┌─────────────────────────────▼───────────────────────────────────┐
+│  Conversation orchestrator (state machine + policy)               │
+│  • Intent routing (5 intents)                                     │
+│  • Slot collection & validation                                     │
+│  • Compliance gates (disclaimer, advice refusal)                  │
+└─────┬───────────────────┬───────────────────┬─────────────────────┘
+      │                   │                   │
+      ▼                   ▼                   ▼
+┌─────────────┐   ┌───────────────┐   ┌──────────────────────────────────┐
+│ NLU / LLM   │   │ Booking       │   │ FastMCP server (google-api-python)    │
+│ (classify,  │   │ domain logic  │   │ • calendar_create_hold / delete_hold  │
+│  generate,  │   │ • Topic enum  │   │ • docs_append_prebooking              │
+│  constrained)│  │ • Slot picker │   │ • gmail_create_draft                  │
+└─────────────┘   │ • Codes       │   └──────────────────────────────────────┘
+                  │ • IST display │
+                  └───────────────┘
+
+Principle: The orchestrator owns turn-taking and legal/compliance transitions; the LLM assists with understanding and natural phrasing but does not bypass policy (e.g. cannot skip disclaimer or accept PII).
+
+3. Intent model (five intents)
+Intent
+Purpose
+Typical outcome
+book_new
+New tentative booking
+Full happy path or waitlist
+reschedule
+Change existing tentative slot
+Lookup by booking code (caller states code verbally), re-offer slots
+cancel
+Cancel tentative hold
+Google Calendar release + Docs update + optional Gmail draft
+what_to_prepare
+Pre-visit guidance
+Scripted / KB content by topic; no advice
+check_availability
+Windows / “when can I book?”
+Query mock calendar; offer next steps toward book_new
+
+Routing: Hybrid approach recommended—lightweight classifier or structured LLM JSON for intent + entities; fall back to clarification prompts when confidence is low.
+
+4. Dialogue flow (state machine)
+States are linear with branches for errors, waitlist, and non-booking intents.
+Greet → short value prop (chat message; later playable via TTS).
+Disclaimer → mandatory: informational, not investment advice; require explicit acknowledgment (e.g. “yes” / “I understand”) before continuing.
+Intent detect → if not book_new, branch to reschedule / cancel / prepare / availability subgraphs (each with its own mini-flow).
+Topic confirm → must map to one of: KYC/Onboarding, SIP/Mandates, Statements/Tax Docs, Withdrawals & Timelines, Account Changes/Nominee.
+Day/time preference → natural language → normalized to date + time window in IST (store and display always with timezone).
+Offer slots → mock calendar returns two concrete options; show them in chat with IST and full date/time; on voice, read back the same strings.
+Confirm → on user confirmation:
+Generate booking code (e.g. NL-A742 pattern).
+Google Calendar MCP: create tentative event title Advisor Q&A — {Topic} — {Code}.
+Google Docs MCP: append {date, topic, slot, code} to document Advisor Pre-Bookings.
+Gmail MCP: draft advisor notification (human approval before send).
+Close → output booking code and secure URL in chat (no PII collected in-session); voice uses the same strings via TTS (optionally spell the code).
+No-match path: If no slots available → waitlist hold (domain concept + Google Docs/Calendar as per product rules) + Gmail draft; still issue booking code if the brief requires a reference for the waitlist case (align with PM—code may be waitlist-specific).
+Investment advice: If detected (keywords or intent), refuse and offer educational links only; do not enter booking unless user pivots to scheduling.
+
+5. Component responsibilities
+5.1 Conversation orchestrator
+Enforces ordering: disclaimer before topic; topic before time; two slots before confirm.
+Repeats date/time in IST at confirmation.
+Blocks or redacts PII patterns (phone, email, account numbers) if user text or LLM surfaces them—respond with redirect to secure URL (same in chat and voice).
+Emits structured events for analytics (no PII in events).
+5.2 NLU / LLM layer
+Inputs: transcript, current state, allowed topic list, current IST date for relative dates (“next Tuesday”).
+Outputs: intent label, extracted slots, or needs_clarification with suggested agent prompt.
+Constraints: System prompt + tool/schema so the model cannot invent slots or skip mandatory steps.
+5.3 Booking domain service
+Topic validation (closed set).
+Slot picker: findSlots(preference, timezone=IST) -> [slot1, slot2] or empty. Uses MockCalendarService for local dev/test; production can query Google Calendar for real advisor availability.
+Code generation: unique, human-readable in chat; spell-out helper for TTS when voice is enabled.
+Reschedule/cancel: validate booking code against internal store or notes index (implementation choice: lightweight store keyed by code).
+5.4 Google MCP integration layer (FastMCP)
+We build a FastMCP server that exposes Google Workspace operations as MCP tools. The orchestrator calls these tools to perform side effects on real Google resources:
+calendar_create_hold / calendar_delete_hold: create/update/delete tentative holds on a real Google Calendar via google-api-python-client; idempotent where possible using booking code as idempotency key.
+docs_append_prebooking: append-only log to Advisor Pre-Bookings document in Google Docs.
+gmail_create_draft: create draft with structured fields; never auto-send without approval gate in the tool or external workflow.
+Why FastMCP: single-process Python server, no external MCP server to deploy; tools are decorated functions backed by google-api-python-client. In-memory fakes implement the same tool signatures for testing.
+
+6. Data and state
+Data
+Storage
+PII
+Session state (turn, slots, disclaimer ok)
+Ephemeral (Redis/memory)
+None
+Booking code → slot, topic, timestamps
+Short-lived store or derived from MCP responses
+None in-session (chat or voice)
+Advisor Pre-Bookings log
+Via Google Docs MCP
+Only what policy allows post-call
+
+Timezone: All persisted times UTC or explicit offset; all user-facing copy (chat or spoken) IST per requirements.
+
+7. Security, compliance, and safety
+PII firewall: Regex/heuristic + LLM refusal for account/contact details; single message pointing to secure URL.
+Disclaimer: Logged acknowledgment timestamp for audit if required.
+Advice refusal: Separate prompt path with static educational URLs.
+Email: Draft-only through gmail_create_draft FastMCP tool until human approves.
+
+8. Observability and testing
+Tracing: Correlation id per call; log intent transitions and Google MCP success/failure (no transcript PII in logs if policy requires minimization).
+Test doubles: Primary tests use direct text (no STT/TTS); in-memory fake MCP clients stand in for Google Calendar/Docs/Gmail; property tests for “two slots,” “IST repeated on confirm,” and “five intents.” Add STT/TTS fakes when wiring voice.
+
+9. Suggested implementation order
+Domain + mock calendar (pure logic, tests).
+Chat loop: state machine + NLU + topic/time slots + disclaimer and PII guards, exposed via chat UI or message API (no audio).
+FastMCP integration (Calendar, Docs, Gmail tools backed by google-api-python-client) with retries and idempotency—driven entirely from the chat path; fakes for CI.
+Secondary intents: reschedule, cancel, prepare, availability (still chat-only).
+Voice layer: STT feeds the same user_text as chat; assistant messages go to TTS; add barge-in, VAD, and code spelling only where needed.
+Until step 5, chat is the product surface for demos and QA; step 5 is an I/O swap, not a rewrite of booking logic.
+
+10. Open decisions (to lock with PM)
+Whether waitlist receives the same booking code format as confirmed slots.
+Whether reschedule/cancel require the user to type or speak the code only (no lookup by phone—aligned with no PII); chat validates the same flow before voice.
+Exact secure URL issuer and token model (out of band to this voice stack).
+This architecture satisfies the milestone: practical voice UX, safe intent handling, and real-world orchestration via FastMCP-wrapped Google APIs (Calendar, Docs, Gmail) while keeping PII off the call and advice boundaries explicit.
+Low Level Architecture
+
+Low-level architecture and phased implementation
+This document turns the logical design in architecture.md into implementation-level modules, interfaces, data shapes, and a phase-by-phase build plan. Stack choices below are suggested defaults; keep the same seams if you swap libraries.
+Chat first, voice second (implementation rule)
+Ship a full chat experience before any audio. All flows (book, reschedule, cancel, prepare, availability, waitlist, Google MCP) are implemented and tested with text input and text output only.
+Single core API: Orchestrator.handle(user_text, session) -> AgentTurn where AgentTurn contains one or more assistant text messages (and internal side effects). Chat UI and HTTP APIs call this directly.
+Voice is an adapter: SpeechToText produces user_text; each assistant string is passed to TextToSpeech. The orchestrator, NLU, domain, and Google MCP code stay unchanged when voice is added.
+Phases 1–6 below complete the chat agent; Phase 7 only adds STT/TTS and real-time audio plumbing.
+
+0. Cross-cutting conventions
+Concern
+Implementation detail
+Time
+Store Instant (UTC) + ZoneId (Asia/Kolkata) for display. Use a single Clock injectable in tests.
+IDs
+session_id (UUID), correlation_id (propagate to MCP/logging).
+Idempotency
+Google Calendar MCP create uses key booking:{code} (or hash of code + slot start) to avoid duplicate holds on retries.
+Config
+Environment-driven: Google OAuth/service-account credentials (for FastMCP tools), Gemini API key (for NLU), secure link base URL template. Default mode text/chat; enable voice adapters when ready. All secrets in .env (gitignored).
+
+Suggested repo layout (monolith service first):
+src/
+  domain/           # pure: topics, codes, calendar rules, DTOs
+  session/          # state machine, session store, Orchestrator (text in / text out)
+  nlu/              # prompts, parsers, PII guard
+  integrations/
+    google_mcp/     # FastMCP server: Google Calendar, Docs, Gmail tools + in-memory fakes for CI
+    voice/          # stt, tts only — thin wrappers; optional until phase 7
+  api/
+    chat/           # REST or WebSocket messages: primary surface phases 1–6
+    voice/          # optional: audio session bridge (phase 7)
+tests/
+  unit/
+  integration/      # mostly chat HTTP or in-process handle(); voice E2E optional later
+
+
+1. Domain layer (pure logic)
+1.1 Enumerations and constants
+Topic: closed enum matching problem statement (exact string keys for MCP titles).
+Intent: book_new | reschedule | cancel | what_to_prepare | check_availability | unknown.
+AdvisorDisclaimerStatus: pending | acknowledged.
+1.2 DTOs (serializable, no PII)
+TimeSlot
+  start_utc: ISO-8601 instant
+  end_utc: ISO-8601 instant
+  label_ist: string   # shown in chat and read by TTS later, e.g. "Tuesday, 8 April 2026, 3:00 PM IST"
+
+BookingPreference
+  topic: Topic
+  preferred_date_ist: LocalDate | null      # resolved from NLU
+  preferred_time_window: enum morning | afternoon | evening | exact | null
+  raw_user_phrase: string | null            # optional debug; strip before external logs if needed
+
+BookingRecord (in-memory / cache)
+  code: string                              # e.g. NL-A742
+  topic: Topic
+  slot: TimeSlot
+  created_at_utc: instant
+  status: tentative | waitlisted | cancelled
+
+1.3 BookingCodeGenerator
+Input: none or optional entropy seed for tests.
+Output: string matching pattern [A-Z]{2}-[A-Z][0-9]{3} (configurable).
+Uniqueness: check against BookingStore in process; collision retry with cap (e.g. 5).
+Voice (later): expose to_spelling(code) -> string for TTS (“N L dash A seven four two”); chat shows the raw code.
+1.4 MockCalendarService (interface + impl)
+findTwoSlots(preference: BookingPreference, now: Clock): TimeSlot[]
+  - Returns exactly 0, 1, or 2 slots (or always pad/truncate to 2 per product rule).
+  - Deterministic mode for tests: fixed seed or injected slot list.
+  - Empty => caller triggers waitlist path (orchestrator), not this class.
+
+holdWaitlistSlot(preference, code): TimeSlot | null   # optional synthetic “waitlist” marker slot
+
+Implementation sketch: predefine advisor working hours in IST; filter by preferred_date_ist / window; return next two free slots from an in-memory “busy” set updated on each confirm in dev.
+1.5 BookingStore (interface)
+save(record), get_by_code(code), update_status(code, status).
+Phase 1–2: in-memory dict.
+Later: optional Redis with TTL (e.g. 7 days) for multi-instance chat or voice workers (same store).
+
+2. Session and state machine
+2.1 State enum (orchestrator)
+Minimal set; extend per subgraph.
+GREET
+DISCLAIMER_AWAIT_ACK
+INTENT_ROUTING
+BOOK_TOPIC
+BOOK_TIME_PREFERENCE
+BOOK_OFFER_SLOTS
+BOOK_CONFIRM
+BOOK_EXECUTE_MCP        # transient; on failure -> BOOK_OFFER_SLOTS or ERROR_RECOVER
+CLOSE
+# branches
+RESCHEDULE_COLLECT_CODE
+RESCHEDULE_OFFER_SLOTS
+CANCEL_COLLECT_CODE
+CANCEL_CONFIRM
+PREPARE_TOPIC_OR_GENERIC
+AVAILABILITY_QUERY
+ERROR_RECOVER
+
+2.2 SessionContext (per session_id)
+state: State
+disclaimer: AdvisorDisclaimerStatus
+intent: Intent | null
+preference: BookingPreference | partial
+offered_slots: TimeSlot[]        # length 0–2
+selected_slot: TimeSlot | null
+pending_booking_code: string | null
+last_mcp_error: string | null    # sanitized
+turn_count: int
+advice_redirect_count: int       # cap retries on advice loop
+
+2.3 Transition table (implementation)
+Implement as Orchestrator.handle(user_text, session) -> AgentTurn:
+PII gate (regex + optional classifier): if match → fixed reply + secure URL; do not advance state (or advance to CLOSE if policy says end call).
+Advice gate: if intent classifier says investment_advice → static refusal + links; stay in current booking-related state or INTENT_ROUTING.
+NLU step: produce NluResult { intent, entities, confidence }.
+State handler: pure function (State, NluResult, SessionContext) -> (new State, side_effects[]).
+Side effects (ordered queue per turn):
+emit_assistant_text(text) — append to the turn’s outgoing messages (chat renders these; voice feeds each string to TTS in order). Do not branch business logic on chat vs voice here.
+google_calendar_mcp.createHold(...)
+google_docs_mcp.append(...)
+gmail_mcp.createDraft(...)
+persist_session
+Execute side effects after state commit; on Google MCP failure, transition to recovery state and enqueue apology + retry or human handoff message (as chat text first).
+2.4 SessionStore
+get(session_id), put(session), TTL (e.g. 30 min idle).
+Thread-safe if multiple workers.
+
+3. NLU layer
+3.1 Structured output schema (LLM or rules)
+Force JSON (or tool call) shape:
+{
+  "intent": "book_new | reschedule | cancel | what_to_prepare | check_availability | unknown",
+  "topic": "kyc_onboarding | ... | null",
+  "date_phrase": "string | null",
+  "time_window": "morning | afternoon | evening | null",
+  "booking_code_guess": "string | null",
+  "wants_investment_advice": false,
+  "confidence": 0.0
+}
+
+3.2 Resolver pipeline
+RelativeDateResolver: inputs date_phrase, today_ist from Clock → LocalDate or needs_clarification.
+TopicMapper: fuzzy match user text to Topic enum; threshold below → ask “Which of these five…”.
+IntentPolicy: if confidence < τ, ask one targeted clarification (don’t chain more than N times per state).
+3.3 Prompt packaging
+System: list allowed topics, disclaimer already handled, no PII, output JSON only.
+User: transcript + current state name + last assistant question (for coreference).
+3.4 Fallback without LLM (optional milestone shortcut)
+Keyword + regex router for demos; keep the same NluResult type so orchestrator stays unchanged.
+
+4. Google MCP integration layer (FastMCP)
+We build a FastMCP server (fastmcp) that exposes Google Workspace operations as MCP tools. Each tool is a decorated Python function backed by google-api-python-client. The server runs in-process — no external MCP server to deploy.
+4.1 FastMCP tool definitions
+from fastmcp import FastMCP
+
+mcp = FastMCP("advisor-booking")
+
+@mcp.tool()
+def calendar_create_hold(title: str, start_utc: str, end_utc: str,
+                         calendar_id: str, idempotency_key: str) -> str:
+    """Create a tentative calendar hold. Returns external_event_id."""
+
+@mcp.tool()
+def calendar_delete_hold(event_id: str, calendar_id: str) -> None:
+    """Delete an existing tentative hold."""
+
+@mcp.tool()
+def docs_append_prebooking(doc_id: str, line: str,
+                           idempotency_key: str) -> None:
+    """Append a pre-booking line to the Advisor Pre-Bookings doc. No PII."""
+
+@mcp.tool()
+def gmail_create_draft(to: str, subject: str,
+                       body_markdown: str) -> str:
+    """Create a Gmail draft. Never auto-sends; returns draft_id."""
+
+Each tool internally uses google-api-python-client to call the real Google API.
+4.2 Google API backing layer
+Each FastMCP tool delegates to google-api-python-client:
+FastMCP tool
+Google API
+Python service object
+calendar_create_hold / calendar_delete_hold
+Google Calendar API v3
+build("calendar", "v3")
+docs_append_prebooking
+Google Docs API v1
+build("docs", "v1")
+gmail_create_draft
+Gmail API v1
+build("gmail", "v1")
+
+Authenticate via OAuth 2.0 or service account credentials stored in .env; build a shared google.oauth2.credentials.Credentials object at startup.
+Timeouts: calendar 5–10s, docs/gmail 5s; single retry on transient network.
+Logging: log correlation_id, tool name, latency, success/failure — not full email body if sensitive.
+4.3 In-memory fakes for CI
+FakeCalendarMcp: records calls; returns synthetic ids; in-memory list for "existing holds" to test reschedule/cancel.
+FakeNotesMcp: records appended lines.
+FakeEmailMcp: records drafted emails.
+Tests always use fakes so CI stays fast and needs no Google credentials.
+4.4 ExecuteBookingSideEffects (use case)
+Single function invoked from BOOK_EXECUTE_MCP:
+Generate code if not set.
+calendar.createTentativeHold(...) → Google Calendar event with title "Advisor Q&A — {Topic} — {code}".
+notes.appendAdvisorPreBooking(formatted_line, idempotency_key=code) → Google Docs append.
+email.createAdvisorDraft(subject, body_with_code_and_slot_ist, ...) → Gmail draft.
+On partial failure: compensating actions where possible (delete Calendar hold if Docs append failed); surface user-friendly error.
+
+5. Voice layer (Phase 7 — adapters only)
+Voice does not reimplement flows. It sits outside the orchestrator:
+[Mic] -> SpeechToText -> user_text -> Orchestrator.handle(...) -> assistant_messages[]
+                                                              -> TextToSpeech -> [Speaker]
+
+5.1 Abstractions
+SpeechToText: stream or batch; returns partial + final transcripts → string
+TextToSpeech: synthesize(assistant_message: string); optional spell_out mode for booking codes
+AudioIO: chunk frames in/out (platform-specific)
+
+5.2 Integration pattern
+VAD + end-of-utterance produces a final string; call handle with the same contract as chat (one user message per completed utterance).
+Barge-in: cancel current TTS playback on speech start; optional truncate the playback of the last assistant message—session state still reflects what was already “said” unless product rules require rollback (prefer matching chat: message already in history).
+Confirm step: orchestrator already emits the correct IST strings; TTS reads them verbatim. Optionally use to_spelling(code) for the booking code line only.
+Chat remains useful after voice ships: debugging, accessibility, and regression tests without audio.
+
+6. Chat API surface (primary until voice)
+This is the main product surface during development and the canonical integration for tests.
+POST /session (or GET health): create session, return session_id.
+POST /session/{id}/message: body { "text": "..." }; response { "messages": ["..."], "state": "..." } — each string is one assistant bubble in the UI. Same payload shape a voice client would use after STT (user side) and before TTS (assistant side).
+Optional: GET /session/{id} for debug state (disabled in prod if needed).
+Web UI: thin client over the same endpoints; no booking logic in the browser.
+Phase 7 additions (parallel to chat, not replacing it):
+WebSocket audio or telephony webhook: decode audio → user_text → same POST …/message handler internally, or shared handle invocation.
+Stream partial transcripts only for UX; commit a turn to handle when utterance is final (same as user pressing “Send” in chat).
+
+Phased implementation plan
+Phases 1–6 = chat-complete agent. Phase 7 adds voice I/O. Phase 8 hardens production for either channel.
+Phase 1 — Domain + mock calendar
+Deliverables
+Topic, Intent, TimeSlot, BookingPreference, BookingRecord.
+BookingCodeGenerator + tests (format, uniqueness, collision retry).
+MockCalendarService returning 0 or 2 slots; IST formatting helper (formatSlotForUser(slot) -> string) used in chat and later read by TTS.
+Unit tests: boundary dates, empty calendar, two-slot truncation.
+Exit criteria: 100% domain unit tests green; no I/O.
+
+Phase 2 — State machine + chat entrypoint
+Deliverables
+SessionContext, SessionStore (in-memory).
+Orchestrator.handle(user_text, session) -> AgentTurn returning structured assistant message list (plain strings).
+Chat transport: minimal HTTP chat API and/or CLI REPL that only forwards text to handle and prints returned messages—this is the default demo surface.
+States from greet through offer slots with stub NLU (typed commands like topic kyc, time monday afternoon) or literal user phrases.
+Disclaimer gate: cannot pass without ack phrase.
+PII regex gate (phone/email patterns) returning canned response in chat.
+Exit criteria: From the chat UI or CLI, a tester can complete the happy path to “ready to confirm” without MCP and without any audio code.
+
+Phase 3 — NLU wiring
+Deliverables
+NluResult schema + LLM client or rule engine behind NluEngine interface.
+RelativeDateResolver + TopicMapper with tests.
+Replace stub inputs in orchestrator with NluEngine.parse(transcript, state, context) — transcript is the same string whether it came from keyboard or STT.
+Exit criteria: Golden text fixtures for each intent label; clarification on ambiguous topic (all runnable without voice).
+
+Phase 4 — FastMCP integration + booking execution
+Deliverables
+FastMCP server (src/integrations/google_mcp/server.py): defines calendar_create_hold, calendar_delete_hold, docs_append_prebooking, gmail_create_draft as @mcp.tool() functions.
+Google API backing: each tool calls google-api-python-client (Calendar v3, Docs v1, Gmail v1) using OAuth / service-account credentials from .env.
+In-memory fakes (FakeCalendarMcp, FakeNotesMcp, FakeEmailMcp) implementing the same call signatures for CI tests.
+ExecuteBookingSideEffects with idempotency and compensation tests.
+Wire BOOK_CONFIRM → BOOK_EXECUTE_MCP → CLOSE with chat messages including booking code + secure URL template (https://example.com/complete?ref={code} placeholder).
+Add fastmcp, google-api-python-client, google-auth, google-auth-oauthlib to requirements.txt.
+Exit criteria: Integration test via chat API (in-process or HTTP): full book_new with two slots, actual Google Calendar event created, Docs entry appended, Gmail draft created. CI uses fakes; manual test confirms real Google API calls.
+
+Phase 5 — Waitlist + advice refusal
+Deliverables
+findTwoSlots empty → transition to waitlist: optional holdWaitlistSlot or notes-only path per PM; always email.createAdvisorDraft for waitlist (Gmail draft via MCP).
+Advice classifier or keyword path + educational link constants in config.
+Repeat IST date/time on final confirm (assert in test output).
+Exit criteria: Separate integration tests for empty calendar and advice interruption mid-flow.
+
+Phase 6 — Secondary intents (subgraphs)
+Deliverables
+Reschedule: RESCHEDULE_COLLECT_CODE → validate code in BookingStore → offer two new slots → Google Calendar MCP update (delete old hold + create new).
+Cancel: collect code → confirm → Google Calendar deleteHold + Google Docs append “cancelled” + optional Gmail draft.
+what_to_prepare: map Topic to static markdown snippets; no LLM invention.
+check_availability: call MockCalendarService in “peek” mode (no booking); then suggest book_new.
+Exit criteria: Each subgraph has an integration test through chat; no PII prompts.
+
+Phase 7 — Voice adapters (input/output swap)
+Prerequisites: Phases 1–6 green; chat is the regression baseline.
+Deliverables
+SpeechToText / TextToSpeech implementations (vendor-specific) wired to the existing handle pipeline: no new states for booking unless required for audio UX only.
+Session glue: audio session ↔ session_id; final utterance → same user_text as chat POST …/message.
+Assistant path: for each message in AgentTurn.messages, call TTS (queue or stream).
+End-to-end latency budget documented (STT + orchestrator + TTS).
+Optional: TTS spelling path for booking code via to_spelling; slot choice prompts (“first” / “second”) use the same NLU as chat typing “first slot”.
+Exit criteria: One E2E voice test (manual checklist acceptable); chat suite still passes unchanged (or expanded only for shared copy tweaks).
+
+Phase 8 — Hardening and ops
+Deliverables
+Structured logging + correlation_id; redaction for stored or logged user text (chat and STT transcripts) in prod.
+Rate limits on session create; session TTL job (shared by chat and voice).
+Runbook: Google MCP outage behavior (queue Gmail draft only, tell user to retry)—same user-facing strings in chat or voice.
+Exit criteria: Failure-injection tests for Google MCP timeouts (via chat API); documented degraded mode. Voice optional in CI; chat integration tests remain the default gate.
+
+Traceability to requirements
+Requirement
+Where implemented
+Five intents
+Intent + NLU + state branches (Phases 2–6), verified in chat
+Disclaimer + topic list + IST
+States DISCLAIMER_*, BOOK_TOPIC, formatters (Phases 2, 1); copy shown in chat
+Two slots
+MockCalendarService, BOOK_OFFER_SLOTS (Phases 1–2)
+Booking code + FastMCP trio (Calendar, Docs, Gmail)
+ExecuteBookingSideEffects (Phase 4)
+No PII
+PII gate + NLU system prompt (Phases 2–3)
+No investment advice
+Advice gate + static links (Phase 5)
+Waitlist + email
+Phase 5
+Secure URL
+Config template in CLOSE (Phase 4)
+Voice UX
+Phase 7: STT/TTS only; core unchanged
+
+
+See also
+architecture.md — logical architecture and principles.
+problemStatement.md — milestone acceptance criteria.

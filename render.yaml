@@ -1,0 +1,33 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Dashboard: New → Blueprint → connect this repo
+services:
+  - type: web
+    name: advisor-appointment-scheduler
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: APP_ENV
+        value: production
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GOOGLE_CALENDAR_ID
+        value: primary
+      - key: GOOGLE_DOCS_PREBOOKING_ID
+        sync: false
+      - key: GOOGLE_GMAIL_ADVISOR_TO
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: MCP_SERVER_URL
+        sync: false
+      - key: MCP_HTTP_BEARER_TOKEN
+        sync: false
+      - key: SECURE_LINK_TEMPLATE
+        value: https://example.com/complete?ref={code}
+      - key: ADVICE_EDUCATIONAL_URL
+        value: https://example.com/learn/basics
