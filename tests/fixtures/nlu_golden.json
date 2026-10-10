@@ -1,0 +1,51 @@
+[
+  {
+    "id": "book_new_plain",
+    "transcript": "I'd like to book a new advisor slot",
+    "state": "INTENT_ROUTING",
+    "expected_intent": "book_new"
+  },
+  {
+    "id": "book_new_schedule",
+    "transcript": "schedule an appointment please",
+    "state": "INTENT_ROUTING",
+    "expected_intent": "book_new"
+  },
+  {
+    "id": "reschedule",
+    "transcript": "I need to reschedule my booking",
+    "state": "INTENT_ROUTING",
+    "expected_intent": "reschedule"
+  },
+  {
+    "id": "cancel",
+    "transcript": "please cancel my tentative hold",
+    "state": "INTENT_ROUTING",
+    "expected_intent": "cancel"
+  },
+  {
+    "id": "what_to_prepare",
+    "transcript": "what to prepare for the call?",
+    "state": "INTENT_ROUTING",
+    "expected_intent": "what_to_prepare"
+  },
+  {
+    "id": "check_availability",
+    "transcript": "when can I book? check availability",
+    "state": "INTENT_ROUTING",
+    "expected_intent": "check_availability"
+  },
+  {
+    "id": "topic_kyc",
+    "transcript": "topic kyc",
+    "state": "BOOK_TOPIC",
+    "expected_intent": "book_new",
+    "expected_topic_key": "kyc_onboarding"
+  },
+  {
+    "id": "topic_sip_natural",
+    "transcript": "it's about my SIP mandates",
+    "state": "BOOK_TOPIC",
+    "expected_topic_key": "sip_mandates"
+  }
+]
