@@ -1,13 +1,21 @@
 /**
  * Vercel build step: write config.js from AAS_API_BASE env.
- * Local / Railway same-origin: leave AAS_API_BASE unset → empty string.
+ * On Vercel, if unset, fall back to the Railway production API.
+ * Local / same-origin: leave AAS_API_BASE unset and VERCEL unset → empty.
  */
 const fs = require("fs");
 const path = require("path");
 
-const base = String(process.env.AAS_API_BASE || "")
+const RAILWAY_FALLBACK =
+  "https://advisor-appointment-scheduler-production.up.railway.app";
+
+const fromEnv = String(process.env.AAS_API_BASE || "")
   .trim()
   .replace(/\/$/, "");
+
+// Vercel sets VERCEL=1 during builds/runtime.
+const onVercel = process.env.VERCEL === "1" || process.env.VERCEL === "true";
+const base = fromEnv || (onVercel ? RAILWAY_FALLBACK : "");
 
 const out = path.join(__dirname, "config.js");
 const body =
