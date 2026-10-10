@@ -1,7 +1,8 @@
 /**
  * Vercel build step: write config.js from AAS_API_BASE env.
- * On Vercel, if unset, fall back to the Railway production API.
- * Local / same-origin: leave AAS_API_BASE unset and VERCEL unset → empty.
+ * If unset, use the Railway production API (required for Vercel static hosting).
+ * For local same-origin with uvicorn, use the committed empty web/config.js
+ * and do not run this script.
  */
 const fs = require("fs");
 const path = require("path");
@@ -13,9 +14,7 @@ const fromEnv = String(process.env.AAS_API_BASE || "")
   .trim()
   .replace(/\/$/, "");
 
-// Vercel sets VERCEL=1 during builds/runtime.
-const onVercel = process.env.VERCEL === "1" || process.env.VERCEL === "true";
-const base = fromEnv || (onVercel ? RAILWAY_FALLBACK : "");
+const base = fromEnv || RAILWAY_FALLBACK;
 
 const out = path.join(__dirname, "config.js");
 const body =
@@ -23,6 +22,4 @@ const body =
   `window.AAS_API_BASE = ${JSON.stringify(base)};\n`;
 
 fs.writeFileSync(out, body, "utf8");
-console.log(
-  `[inject-api-base] AAS_API_BASE = ${base ? base : "(same-origin / empty)"}`,
-);
+console.log(`[inject-api-base] AAS_API_BASE = ${base}`);
