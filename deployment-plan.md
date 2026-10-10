@@ -1,295 +1,204 @@
-# Deployment plan — Advisor Appointment Scheduler on Streamlit
+# Deployment plan — Advisor Appointment Scheduler
 
-> **Preferred production host for the current stack:** **[Render](./docs/deploy-render.md)** (Docker + FastAPI + `web/`).  
-> Use this Streamlit plan only if you explicitly need a Streamlit Cloud surface.
+**Hosts:** Railway (backend API) + Vercel (latest voice-console frontend)  
+**Repo:** `https://github.com/ambrosh7/advisor-appointment-scheduler` (or your fork)  
+**Detail companion:** [`docs/deploy-railway-vercel.md`](./docs/deploy-railway-vercel.md)
 
-This plan covers deploying the **full product** (booking Orchestrator / “backend” logic **and** the latest voice-console UX) with **Streamlit** as the public hosting surface.
-
----
-
-## 1. Reality check (important)
-
-| What we have today | What Streamlit Community Cloud runs |
-|--------------------|-------------------------------------|
-| FastAPI (`api.chat.app`) + static `web/` (HTML/CSS/JS) | A single `streamlit run <entry>.py` process |
-| `uvicorn` on port 8000 | Streamlit on port 8501 (managed) |
-| Browser mic → `POST /session/...` → Orchestrator | No long-lived custom FastAPI process on Streamlit Cloud |
-| Vapi webhook `POST /v1/chat/completions` | Needs a public HTTP API host (not Streamlit Cloud alone) |
-
-**Streamlit Community Cloud cannot run Uvicorn + FastAPI + static `web/` as a second server.**  
-To put the *entire* product on Streamlit, we **in-process** the Orchestrator and present the voice UX through Streamlit (and/or embedded HTML). Keep FastAPI only if we also deploy an API host (hybrid).
+This plan deploys the **entire product**: FastAPI Orchestrator (booking brain, Google/MCP, optional Vapi) **and** the current `web/` voice console (hold-to-talk, TTS, stage UI, chips).
 
 ---
 
-## 2. Recommended architecture (all-on-Streamlit)
+## 1. Architecture
 
 ```text
-┌─────────────────────────────────────────────────────────┐
-│  Streamlit Community Cloud  (.streamlit.app)            │
-│                                                         │
-│  streamlit_app.py                                       │
-│    ├─ UI: voice console (Streamlit + components.html)   │
-│    ├─ st.session_state → Orchestrator session           │
-│    ├─ Browser STT / TTS (same Web Speech as today)      │
-│    └─ Google / Gemini / MCP via existing Python modules │
-│                                                         │
-│  PYTHONPATH=src  ·  secrets from Streamlit Secrets      │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────────┐         HTTPS          ┌──────────────────────────────┐
+│  Vercel (static)             │  ───────────────────►  │  Railway (Docker)            │
+│  Root: web/                  │   /session, /message   │  Dockerfile + railway.toml   │
+│                              │                        │                              │
+│  index.html                  │                        │  uvicorn api.chat.app:app    │
+│  styles.css · app.js         │                        │  Orchestrator + side effects │
+│  config.js → AAS_API_BASE    │                        │  Gemini · Calendar · MCP     │
+│  vercel.json (/static rewrite)                        │  GET /health · POST /v1/...  │
+└──────────────────────────────┘                        └──────────────────────────────┘
+         Public demo URL                                         API / Vapi URL
 ```
 
-**Brain stays the same:** `session.orchestrator.Orchestrator` + Phase 4/8 side effects.  
-**Transport changes:** Streamlit callbacks replace FastAPI `/session` routes for the interactive demo.
+| Piece | Host | Source |
+|-------|------|--------|
+| Latest frontend (voice console) | **Vercel** | `web/` (`index.html`, `styles.css`, `app.js`, `config.js`) |
+| Backend API + Orchestrator | **Railway** | `src/` via `Dockerfile` |
+| Optional phone / WebRTC (Vapi) | Points at Railway | `POST /v1/chat/completions` |
 
-### Optional hybrid (only if you still need public HTTP APIs)
-
-Use when you need **Vapi custom-LLM**, external webhooks, or the exact FastAPI OpenAPI surface:
-
-| Piece | Host |
-|-------|------|
-| Voice / ops UI | Streamlit Cloud |
-| FastAPI (`/session`, `/v1/chat/completions`, `/static`) | Render / Railway / Cloud Run |
-| Streamlit calls | `BACKEND_URL` secret → `httpx` |
-
-For “deploy everything on Streamlit” as the goal, **do not block on hybrid** — ship the in-process plan first.
+Railway can also serve `GET /` + `/static/*` from the same container (useful as a fallback). Prefer **Vercel** as the public demo URL so the UI and API scale independently.
 
 ---
 
-## 3. Target repo layout (additions)
+## 2. What ships where
 
-```text
-Voice Agent/
-├── streamlit_app.py              # Streamlit entry (Cloud “Main file path”)
-├── streamlit_pages/              # optional multipage
-│   ├── 1_Voice_Console.py
-│   └── 2_Ops_Debug.py
-├── streamlit_components/
-│   └── voice_console.html        # trimmed export of web/ (or iframe bundle)
-├── .streamlit/
-│   ├── config.toml
-│   └── secrets.toml.example      # never commit real secrets
-├── src/                          # existing backend (unchanged core)
-├── web/                          # source of truth for console design
-├── requirements.txt              # add streamlit, httpx if hybrid
-├── packages.txt                  # only if system libs needed (usually empty)
-└── deployment-plan.md            # this file
-```
+### Backend (Railway)
 
-Keep `web/` as the design source; Streamlit either:
+| Path | Role |
+|------|------|
+| `POST /session` | Create booking session |
+| `POST /session/{id}/message` | User turn → Orchestrator |
+| `GET /session/{id}` | Debug state |
+| `GET /health` | Health / deploy check |
+| `GET /voice/config` | Public voice client hints |
+| `POST /v1/chat/completions` | Vapi custom-LLM (optional) |
+| `GET /`, `/static/*` | Same UI if opened on Railway |
 
-1. **Embeds** it via `st.components.v1.html` + `window.parent` / custom component messaging, or  
-2. **Reimplements** the console with Streamlit widgets + a small JS mic component that posts transcripts into `st.session_state`.
+### Frontend (Vercel) — latest console
 
-**Preference for fidelity:** embed a packaged `voice_console.html` that calls a tiny JS bridge (`Streamlit.setComponentValue`) instead of FastAPI fetch — so look/feel matches the latest frontend without a separate web server.
+| File | Role |
+|------|------|
+| `web/index.html` | Product shell, stage, chips, turn history |
+| `web/styles.css` | Atmosphere, stage, motions |
+| `web/app.js` | Session API client, STT/TTS, stepper, quick replies |
+| `web/config.js` | `window.AAS_API_BASE` → Railway public URL |
+| `web/vercel.json` | Maps `/static/*` → files in `web/` |
 
----
-
-## 4. Streamlit app contract (backend in-process)
-
-### 4.1 Session lifecycle
-
-| Action | Implementation |
-|--------|----------------|
-| Start / Restart | `orch.create_session()` → store `session_id`, `AgentTurn` in `st.session_state` |
-| User text / STT final | `orch.handle(text, session)` |
-| State / stepper | Map `session.state` → same stage labels as `web/app.js` |
-| Name / topic / slots | Existing Orchestrator states (`COLLECT_NAME`, `BOOK_*`, …) |
-| Debug | Expandable “Turn history” from messages list (same as compact log) |
-
-### 4.2 Singleton Orchestrator
-
-```python
-# Pseudocode — one Orchestrator per Streamlit server process
-@st.cache_resource
-def get_orchestrator() -> Orchestrator:
-    load_dotenv_or_secrets()
-    return build_orchestrator_from_env()  # same wiring as api.chat.app.create_app
-```
-
-Per-browser session: only `session_id` + UI flags in `st.session_state`.
-
-### 4.3 Voice (STT / TTS)
-
-| Capability | On Streamlit |
-|------------|--------------|
-| Hold-to-talk STT | Keep Web Speech API inside embedded HTML / custom component (Chrome/Edge) |
-| TTS en-US + KYC/SIP expansion | Same `speechSynthesis` logic as `web/app.js` (`forSpeech`) |
-| Barge-in | Cancel TTS on mic `pointerdown` (already in frontend) |
-| Server-side STT/TTS | Out of scope for Cloud free tier; optional later via Vapi hybrid |
-
-### 4.4 What does **not** move onto Streamlit Cloud alone
-
-- **Vapi** `POST /v1/chat/completions` — needs FastAPI (or equivalent) on a public URL  
-- Long-running WebSocket voice app (`api.voice`) — keep optional / hybrid  
-- Local Google OAuth browser redirect — prefer **service account** JSON in secrets for Cloud
+Local / same-origin: leave `AAS_API_BASE` empty. Cross-origin (Vercel → Railway): set the Railway HTTPS origin.
 
 ---
 
-## 5. Secrets & configuration
+## 3. Prerequisites
 
-### 5.1 Streamlit Secrets (Community Cloud → App settings → Secrets)
-
-Mirror `.env` / `.env.example` as TOML:
-
-```toml
-GEMINI_API_KEY = "..."
-GEMINI_MODEL = "gemini-2.5-flash"          # prefer a model with headroom vs free-tier 429s
-GOOGLE_CALENDAR_ID = "primary"
-GOOGLE_DOCS_PREBOOKING_ID = "..."
-GOOGLE_GMAIL_ADVISOR_TO = "advisor@example.com"
-SECURE_LINK_TEMPLATE = "https://example.com/complete?ref={code}"
-ADVICE_EDUCATIONAL_URL = "https://example.com/learn/basics"
-MCP_SERVER_URL = "https://.../mcp"
-MCP_HTTP_BEARER_TOKEN = "..."
-
-# Preferred on Streamlit Cloud (no interactive OAuth)
-GOOGLE_SERVICE_ACCOUNT_JSON = """{ ... raw json ... }"""
-
-# Hybrid only
-# BACKEND_URL = "https://your-api.onrender.com"
-```
-
-At startup, map secrets → `os.environ` before `GoogleMcpConfig.from_env()` / Phase 4 factory.
-
-### 5.2 Google credentials strategy
-
-| Auth mode | Streamlit Cloud |
-|-----------|-----------------|
-| OAuth `credentials.json` + local `token.json` | Fragile (no durable local disk, no easy consent UX) |
-| **Service account** + shared calendar/docs | **Recommended** |
-| MCP Railway bearer for Docs/Gmail | Keep as today |
-
-Document calendar/docs sharing with the service-account email.
-
-### 5.3 Rate limits / Gemini 429
-
-Booking already has **direct Calendar → Docs → Gmail fallback** when Gemini is exhausted. On Streamlit:
-
-- Prefer a paid Gemini tier or a less-constrained model ID in secrets  
-- Keep NLU rule fallback (already used when Gemini NLU fails)  
-- Surface a friendly “Working offline from AI quota — booking tools still running” banner if direct fallback is used (optional UX)
+1. GitHub repo with latest `main` (includes `web/`, `Dockerfile`, `railway.toml`, `web/vercel.json`).
+2. Accounts: [Railway](https://railway.app), [Vercel](https://vercel.com) (GitHub OAuth).
+3. Secrets ready (from local `.env` — **never commit** `.env` / OAuth tokens / SA files):
+   - `GEMINI_API_KEY`, `GEMINI_MODEL`
+   - Google Calendar / Docs / Gmail targets
+   - `GOOGLE_SERVICE_ACCOUNT_JSON` (full JSON string)
+   - `MCP_SERVER_URL`, `MCP_HTTP_BEARER_TOKEN`
+   - `SECURE_LINK_TEMPLATE`, `APP_ENV=production`
+4. Calendar (and Docs if needed) shared with the **service-account email** as Editor.
+5. Browser for smoke: Chrome or Edge (Web Speech STT).
 
 ---
 
-## 6. Dependencies
+## 4. Deploy order (do in sequence)
 
-Update `requirements.txt` (Streamlit Cloud installs this from repo root):
-
-```text
-streamlit>=1.32
-fastapi>=0.110          # keep if hybrid or shared models; optional for pure in-process
-uvicorn[standard]>=0.27 # hybrid / local only
-httpx>=0.27             # hybrid Streamlit → API
-pydantic>=2.0
-python-dotenv>=1.0
-google-api-python-client>=2.100
-google-auth>=2.28
-google-auth-oauthlib>=1.2
-google-generativeai>=0.8
-google-genai>=1.0
-```
-
-Pin Python **3.11+** in Cloud (Google libs warn on 3.9).
-
-`.streamlit/config.toml` (example):
-
-```toml
-[server]
-headless = true
-enableCORS = false
-enableXsrfProtection = true
-
-[browser]
-gatherUsageStats = false
-
-[theme]
-primaryColor = "#C8F06C"
-backgroundColor = "#E8EEF2"
-secondaryBackgroundColor = "#F3F7F5"
-textColor = "#0B1F2A"
-font = "sans serif"
-```
-
----
-
-## 7. Implementation phases
-
-### Phase A — Streamlit skeleton (1–2 days)
-
-1. Add `streamlit_app.py` with brand header + stepper placeholders.  
-2. `@st.cache_resource` Orchestrator (mock calendar first).  
-3. Text input path: disclaimer → name → intent → book (parity with chat API).  
-4. Show assistant messages in a “Live response” panel.  
-5. Local: `PYTHONPATH=src streamlit run streamlit_app.py`.
-
-**Exit criteria:** Full book/confirm path works without FastAPI.
-
-### Phase B — Latest frontend parity (2–3 days)
-
-1. Package `web/index.html` + CSS/JS into `streamlit_components/voice_console.html`.  
-2. Replace `fetch("/session...")` with Streamlit component bridge:
-   - JS → `Streamlit.setComponentValue({ type, text })`
-   - Python → `orch.handle` → `st.components` re-render / `postMessage` reply  
-3. Preserve: hold-to-talk, TTS unlock, en-US voice, KYC/SIP speech expansion, stage fill, chips.  
-4. Wire Restart / TTS / theme to Streamlit or keep inside the component.
-
-**Exit criteria:** Visual/interaction match of current console on `localhost:8501`.
-
-### Phase C — Production secrets & Google (1–2 days)
-
-1. Service account + MCP secrets in Streamlit Cloud.  
-2. Smoke: calendar hold title includes **customer name**; docs line + Gmail draft OK.  
-3. Confirm degraded copy still correct if Docs/Gmail remote fails.  
-4. Hide raw state machine strings (already productized in UI).
-
-**Exit criteria:** Real booking from Cloud URL.
-
-### Phase D — Hardening (1 day)
-
-1. Session TTL / restart hygiene under Streamlit reruns.  
-2. Redact phone/email in any logged Streamlit exceptions (reuse `ops.logging`).  
-3. Basic AppTest or scripted smoke for disclaimer → name → book new.  
-4. README “Deploy” section linking this plan.
-
-### Phase E — Optional hybrid API (only if needed)
-
-1. Deploy FastAPI to Render/Railway (`uvicorn api.chat.app:app --host 0.0.0.0 --port $PORT`).  
-2. Point Vapi custom-LLM at `https://<api>/v1`.  
-3. Streamlit either stays in-process **or** switches to `BACKEND_URL` for demos that must share sessions with phone.
-
----
-
-## 8. Streamlit Community Cloud checklist
-
-1. Push repo to GitHub (public or private with Cloud access).  
-2. [share.streamlit.io](https://share.streamlit.io) → **New app**.  
-3. **Main file path:** `streamlit_app.py`.  
-4. **Python version:** 3.11+.  
-5. Paste Secrets (section 5).  
-6. Deploy → open `https://<app>.streamlit.app`.  
-7. Hard-refresh; allow microphone; click **TTS on** once (browser gesture).  
-8. Flow: Acknowledge → **Full name** → Book new → KYC Onboarding → time → slot → confirm.  
-9. Verify Calendar event summary contains name + code; Gmail draft queued/created.
-
----
-
-## 9. Local verification (before Cloud)
+### Phase 1 — Push code
 
 ```bash
 cd "/Users/apple/Desktop/Voice Agent"
-python3.11 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-export PYTHONPATH=src
-# load .env or .streamlit/secrets.toml for local
-streamlit run streamlit_app.py
+git status
+# commit deploy files if needed, then:
+git push origin main
 ```
 
-Parallel (optional, hybrid):
+Do **not** commit: `.env`, `credentials.json`, `token.json`, service-account JSON files.
+
+### Phase 2 — Railway (backend first)
+
+1. Railway → **New Project** → **Deploy from GitHub** → select this repo.
+2. Confirm build uses **Dockerfile** (`railway.toml` sets `DOCKERFILE` + `healthcheckPath=/health`).
+3. **Variables** → add:
+
+| Variable | Notes |
+|----------|--------|
+| `GEMINI_API_KEY` | Required |
+| `GEMINI_MODEL` | Prefer a model with quota headroom (avoid exhausted free-tier IDs) |
+| `GOOGLE_CALENDAR_ID` | Usually `primary` or shared calendar ID |
+| `GOOGLE_DOCS_PREBOOKING_ID` | Pre-booking Doc ID |
+| `GOOGLE_GMAIL_ADVISOR_TO` | Advisor inbox for drafts |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Entire SA JSON as one line/string |
+| `MCP_SERVER_URL` | MCP HTTP endpoint |
+| `MCP_HTTP_BEARER_TOKEN` | MCP bearer |
+| `SECURE_LINK_TEMPLATE` | `https://…/complete?ref={code}` |
+| `ADVICE_EDUCATIONAL_URL` | Optional educational link |
+| `APP_ENV` | `production` |
+| `CORS_ORIGINS` | Set after Vercel exists (Phase 4); temporarily `*` for first API smoke |
+
+4. **Settings** → generate public domain → note  
+   `https://<service>.up.railway.app`
+5. Verify:
 
 ```bash
-PYTHONPATH=src uvicorn api.chat.app:app --host 127.0.0.1 --port 8000
+curl -sS "https://<service>.up.railway.app/health"
+# expect: "status":"ok"
 ```
 
-CI gate (unchanged):
+6. Optional smoke of API-only UI: open the Railway URL (serves latest `web/` from the image).
+
+### Phase 3 — Wire frontend → Railway
+
+Preferred (no hardcoded URL in git): on **Vercel → Project → Settings → Environment Variables** set:
+
+```text
+AAS_API_BASE=https://<service>.up.railway.app
+```
+
+At build time, `web/package.json` → `npm run build` runs `inject-api-base.js` and writes `web/config.js`.
+
+Alternative: commit a filled `web/config.js` (see `web/config.example.js`).
+
+`web/app.js` prefixes `/session` and `/session/{id}/message` with `window.AAS_API_BASE`.
+
+### Phase 4 — Vercel (latest frontend)
+
+1. Vercel → **Add New** → **Project** → import the **same** GitHub repo.
+2. Configure:
+
+| Setting | Value |
+|---------|--------|
+| **Root Directory** | `web` |
+| **Framework Preset** | Other |
+| **Build Command** | `npm run build` (default from `package.json`) |
+| **Output Directory** | *(default / empty — serves `web/` static files)* |
+| **Install Command** | `npm install` (default; no deps required) |
+| **Env** | `AAS_API_BASE` = Railway HTTPS origin |
+
+3. Deploy → note `https://<project>.vercel.app` (or custom domain).
+4. Back on Railway, set:
+
+```text
+CORS_ORIGINS=https://<project>.vercel.app
+```
+
+Add preview URLs too if you use them (comma-separated). Redeploy Railway if variables do not hot-reload.
+
+### Phase 5 — End-to-end verification
+
+1. Open the **Vercel** URL (primary demo).
+2. Hard-refresh; allow microphone; enable **TTS** once (gesture unlock).
+3. Flow:
+   - Acknowledge (“yes” / “I understand”)
+   - **Full name**
+   - Book new → **KYC Onboarding** or **SIP Mandates**
+   - Time preference → pick slot → confirm
+4. Confirm Calendar event includes **customer name** + booking code; Docs/Gmail side effects as configured.
+5. If the UI cannot start a session: check `AAS_API_BASE`, Railway `/health`, and `CORS_ORIGINS` (exact `https://` origin).
+
+### Phase 6 — Optional Vapi
+
+In Vapi assistant → custom LLM base URL:
+
+```text
+https://<service>.up.railway.app/v1
+```
+
+Orchestrator remains the brain; Vapi is transport only.
+
+---
+
+## 5. Local parity (before / while deploying)
+
+```bash
+cd "/Users/apple/Desktop/Voice Agent"
+# API + UI together (AAS_API_BASE empty)
+PYTHONPATH=src python3 -m api.chat
+# open http://127.0.0.1:8000/
+```
+
+Docker parity with Railway:
+
+```bash
+docker build -t advisor-aas .
+docker run --rm -p 8000:8000 --env-file .env advisor-aas
+```
+
+CI (unchanged):
 
 ```bash
 PYTHONPATH=src pytest -q -m "not live_mcp and not voice"
@@ -297,46 +206,76 @@ PYTHONPATH=src pytest -q -m "not live_mcp and not voice"
 
 ---
 
-## 10. Risks & mitigations
+## 6. Environment reference
+
+Mirror `.env.example`. Production differences:
+
+| Concern | Local | Railway + Vercel |
+|---------|-------|------------------|
+| Google auth | OAuth files OK | **`GOOGLE_SERVICE_ACCOUNT_JSON` only** |
+| UI origin | `http://127.0.0.1:8000` | Vercel HTTPS |
+| API origin | same host | Railway HTTPS |
+| CORS | `*` fine | Restrict to Vercel origin(s) |
+| Sessions | In-memory | Reset on Railway restart / scale (expected for demo) |
+| Disk | Writable | Ephemeral — do not rely on writing `token.json` |
+
+---
+
+## 7. Free / cost notes
+
+| Host | Expectation |
+|------|-------------|
+| **Vercel** | Hobby free for this static UI |
+| **Railway** | Trial/hobby credits; may require card for verification — not the same as a fixed $7 Render instance |
+| Cold starts | First request after idle can be slow on hobby tiers |
+| Gemini | Free-tier 429s → app already falls back to direct booking tools |
+
+---
+
+## 8. Risks & mitigations
 
 | Risk | Mitigation |
 |------|------------|
-| Streamlit rerun clears widget state | Persist `session_id` in `st.session_state`; Orchestrator in `cache_resource` |
-| Mic / TTS blocked | Same unlock pattern as `web/app.js`; show “Tap to enable voice” |
-| Gemini free-tier 429 | Direct booking fallback (already in code); upgrade model/quota |
-| OAuth token path on Cloud | Service account JSON in secrets |
-| Custom component bridge lag | Keep turns small; disable unnecessary Streamlit reruns with `on_change` patterns |
-| Vapi phone not on Streamlit | Phase E hybrid API |
-| Secrets in git | `.streamlit/secrets.toml` gitignored; only `secrets.toml.example` committed |
+| CORS blocks Vercel → Railway | Set `CORS_ORIGINS` to exact Vercel URL(s) |
+| Wrong / empty `AAS_API_BASE` | Sessions hit Vercel (404); set Railway URL in `web/config.js` and redeploy Vercel |
+| Gemini 429 | Direct Calendar → Docs → Gmail fallback already in code; switch model/quota |
+| SA not shared on Calendar | Share calendar with SA email as Editor |
+| Secrets in git | Keep `.env` gitignored; only set in Railway Variables |
+| Mic / silent TTS | Chrome/Edge; tap to unlock speechSynthesis (existing UI) |
+| In-memory session loss | Expected on Railway restart; user hits Restart |
 
 ---
 
-## 11. Success criteria
+## 9. Success criteria
 
-- [ ] Public Streamlit URL runs the **latest** voice-console experience (or faithful embed).  
-- [ ] Full booking path works end-to-end with **customer name** on calendar/docs/email.  
-- [ ] Topics display **KYC Onboarding** / **SIP Mandates** (no slash).  
-- [ ] No dependency on local `uvicorn` for the primary demo.  
-- [ ] Secrets only via Streamlit Secrets / env — not in the repo.  
-- [ ] (Optional) Vapi reachable via separately deployed FastAPI.
+- [ ] Railway `/health` returns `"status":"ok"`.
+- [ ] Vercel serves the **latest** voice console (stage, chips, hold-to-talk, TTS).
+- [ ] Browser on Vercel completes Acknowledge → Name → Book → Confirm against Railway.
+- [ ] Topic labels show **KYC Onboarding** / **SIP Mandates** (product copy).
+- [ ] Calendar (and Docs/Gmail as configured) reflect the booking with customer name.
+- [ ] No secrets committed to GitHub.
+- [ ] (Optional) Vapi custom-LLM reaches Railway `/v1`.
 
 ---
 
-## 12. Decision summary
+## 10. Decision summary
 
 | Question | Decision |
 |----------|----------|
-| Can we deploy “as-is” FastAPI + `web/` only on Streamlit Cloud? | **No** |
-| How do we put backend + latest frontend on Streamlit? | **In-process Orchestrator + Streamlit UI / embedded console** |
-| Keep FastAPI? | **Yes locally & for Vapi**; optional Cloud sibling host |
-| First Cloud milestone | Phases **A → C** above |
+| Where does the latest frontend run? | **Vercel** (`web/` root) |
+| Where does the backend run? | **Railway** (Docker / Uvicorn) |
+| How does the UI find the API? | Vercel env `AAS_API_BASE` → `inject-api-base.js` → `config.js` |
+| Streamlit / Render as primary? | **No** — Railway + Vercel only for this plan |
+| Single-host fallback? | Open Railway URL (serves API + same `web/` from image) |
 
 ---
 
-## 13. Next engineering tasks (after plan approval)
+## 11. Checklist (copy/paste)
 
-1. Implement `streamlit_app.py` + `get_orchestrator()`.  
-2. Add component bridge from `web/app.js` (replace `fetch` with Streamlit messaging).  
-3. Add `.streamlit/secrets.toml.example` and gitignore rules.  
-4. Extend `requirements.txt` with `streamlit`.  
-5. Deploy to Streamlit Cloud and run the checklist in §8.
+1. [ ] Push latest `main` (frontend + Docker + `railway.toml` + `web/` Vercel files)
+2. [ ] Deploy Railway from GitHub; set env vars; public domain
+3. [ ] `curl …/health` OK
+4. [ ] Vercel Root Directory `web`; env `AAS_API_BASE` → Railway URL; deploy
+5. [ ] Set Railway `CORS_ORIGINS` → Vercel origin
+6. [ ] E2E voice booking smoke on Vercel URL
+7. [ ] (Optional) Point Vapi at Railway `/v1`

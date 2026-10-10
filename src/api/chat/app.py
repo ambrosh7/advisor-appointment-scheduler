@@ -134,10 +134,14 @@ def create_app(
     app.state.ttl_job = ttl_job
     app.state.vapi_sessions = CallSessionMap()
 
+    cors_raw = (os.getenv("CORS_ORIGINS") or "*").strip()
+    cors_origins = [o.strip() for o in cors_raw.split(",") if o.strip()] or ["*"]
+    # Browsers reject allow_origins=["*"] with allow_credentials=True.
+    allow_credentials = cors_origins != ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
+        allow_origins=cors_origins,
+        allow_credentials=allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )

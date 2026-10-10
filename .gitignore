@@ -13,3 +13,5 @@ token.json
 client_secret*.json
 service-account.json
 *.pem
+node_modules/
+web/node_modules/

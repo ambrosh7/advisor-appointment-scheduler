@@ -22,7 +22,7 @@ def _materialize_service_account_file() -> str:
     """
     Prefer GOOGLE_SERVICE_ACCOUNT_FILE path.
 
-    On Render/Cloud, paste the JSON into GOOGLE_SERVICE_ACCOUNT_JSON and we
+    On Railway/Cloud, paste the JSON into GOOGLE_SERVICE_ACCOUNT_JSON and we
     write it to a temp file at boot.
     """
     path = _env("GOOGLE_SERVICE_ACCOUNT_FILE")

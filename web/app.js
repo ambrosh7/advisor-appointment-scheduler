@@ -27,6 +27,15 @@
   const livePill = document.getElementById("livePill");
   const livePillText = document.getElementById("livePillText");
 
+  const API_BASE = String(window.AAS_API_BASE || "")
+    .trim()
+    .replace(/\/$/, "");
+
+  function apiUrl(path) {
+    const p = path.startsWith("/") ? path : `/${path}`;
+    return API_BASE ? `${API_BASE}${p}` : p;
+  }
+
   let sessionId = null;
   let state = null;
   let busy = false;
@@ -540,7 +549,7 @@
     stopSpeaking();
     setBusy(true);
     try {
-      const res = await fetch("/session", { method: "POST" });
+      const res = await fetch(apiUrl("/session"), { method: "POST" });
       if (!res.ok) throw new Error(`Could not start session (${res.status})`);
       const data = await res.json();
       setMeta(data.state, data.session_id);
@@ -560,7 +569,7 @@
     setBusy(true);
     voiceStatus.textContent = "Thinking…";
     try {
-      const res = await fetch(`/session/${sessionId}/message`, {
+      const res = await fetch(apiUrl(`/session/${sessionId}/message`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: text.trim() }),

@@ -1,0 +1,9 @@
+{
+  "name": "advisor-appointment-scheduler-ui",
+  "private": true,
+  "version": "0.8.0",
+  "description": "Voice console static UI (Vercel)",
+  "scripts": {
+    "build": "node inject-api-base.js"
+  }
+}
