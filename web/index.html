@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Advisor Appointment Scheduler</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -21,7 +21,7 @@
       },
     };
   </script>
-  <link rel="stylesheet" href="/static/styles.css?v=product-4" />
+  <link rel="stylesheet" href="/static/styles.css?v=product-5" />
 </head>
 <body class="font-sans antialiased min-h-screen theme-transition">
   <div class="atmosphere" aria-hidden="true">
@@ -99,7 +99,7 @@
           <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
         </div>
 
-        <button type="button" id="micBtn" class="mic-orb" aria-label="Hold to talk">
+        <button type="button" id="micBtn" class="mic-orb" aria-label="Tap to talk">
           <span class="mic-core">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
@@ -109,7 +109,7 @@
         </button>
 
         <div class="call-copy">
-          <p class="voice-status" id="voiceStatus">Hold to talk · release to send</p>
+          <p class="voice-status" id="voiceStatus">Tap mic to talk · or type below</p>
           <p class="live-transcript" id="liveTranscript"></p>
           <p class="speech-support" id="speechSupport"></p>
         </div>
@@ -163,6 +163,6 @@
   </div>
 
   <script src="/static/config.js"></script>
-  <script src="/static/app.js?v=product-7"></script>
+  <script src="/static/app.js?v=product-8"></script>
 </body>
 </html>

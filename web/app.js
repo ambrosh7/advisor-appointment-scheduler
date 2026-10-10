@@ -48,6 +48,21 @@
   let speakWatchdog = null;
   let preferredVoice = null;
   let suppressPendingSpeech = false;
+  let micPrimed = false;
+  let holdActive = false;
+
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const useTapToTalk =
+    window.matchMedia("(pointer: coarse)").matches ||
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  function micHint() {
+    if (!recognition) return "Type below or tap a suggested reply";
+    return useTapToTalk
+      ? "Tap mic to talk · tap again to send"
+      : "Hold to talk · release to send";
+  }
 
   const STAGE_LABELS = [
     "Acknowledge",
@@ -424,7 +439,7 @@
         callStage.classList.remove("is-speaking");
         syncLivePill();
         if (!busy && !listening) {
-          voiceStatus.textContent = "Hold to talk · release to send";
+          voiceStatus.textContent = micHint();
         }
       };
       u.onerror = () => {
@@ -432,7 +447,7 @@
         callStage.classList.remove("is-speaking");
         syncLivePill();
         if (!busy && !listening) {
-          voiceStatus.textContent = "Hold to talk · release to send";
+          voiceStatus.textContent = micHint();
         }
       };
       try {
@@ -470,43 +485,59 @@
   function initSpeech() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
-      speechSupport.textContent = "Browser STT unavailable — type or use Vapi";
-      voiceStatus.textContent = "Type below, or wire Vapi for phone voice";
+      speechSupport.textContent =
+        "Voice input unavailable here — use Type / suggested replies (Chrome Android works best)";
+      voiceStatus.textContent = "Type below or tap a suggested reply";
       micBtn.disabled = true;
+      micBtn.setAttribute("aria-label", "Microphone unavailable");
       return;
     }
-    speechSupport.textContent = "Browser mic · Chrome / Edge recommended";
+    speechSupport.textContent = useTapToTalk
+      ? "Mobile mic · tap to talk (Safari/Chrome)"
+      : "Browser mic · Chrome / Edge recommended";
+    micBtn.setAttribute(
+      "aria-label",
+      useTapToTalk ? "Tap to talk" : "Hold to talk"
+    );
     recognition = new SR();
     recognition.lang = "en-US";
-    recognition.interimResults = true;
-    recognition.continuous = false;
+    // Push-to-talk: continuous helps mobile capture; interim can stall on some iOS builds.
+    recognition.interimResults = !isIOS;
+    recognition.continuous = useTapToTalk || isIOS;
 
     recognition.onstart = () => {
       listening = true;
       micBtn.classList.add("listening");
       callStage.classList.add("is-listening");
       syncLivePill();
-      voiceStatus.textContent = "Listening… release to send";
+      voiceStatus.textContent = useTapToTalk
+        ? "Listening… tap mic again to send"
+        : "Listening… release to send";
       liveTranscript.textContent = "";
       finalSpeech = "";
-      stopSpeaking();
     };
     recognition.onerror = (e) => {
       listening = false;
+      holdActive = false;
       micBtn.classList.remove("listening");
       callStage.classList.remove("is-listening");
       syncLivePill();
-      voiceStatus.textContent =
-        e.error === "not-allowed"
-          ? "Mic permission denied — allow microphone in the browser"
-          : "Hold to talk · release to send";
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        voiceStatus.textContent =
+          "Mic blocked — allow microphone in Settings, or type below";
+      } else if (e.error === "no-speech") {
+        voiceStatus.textContent = micHint();
+      } else {
+        voiceStatus.textContent = micHint();
+      }
     };
     recognition.onend = () => {
       listening = false;
+      holdActive = false;
       micBtn.classList.remove("listening");
       callStage.classList.remove("is-listening");
       syncLivePill();
-      voiceStatus.textContent = "Hold to talk · release to send";
+      voiceStatus.textContent = micHint();
       const text = (finalSpeech || liveTranscript.textContent || "").trim();
       liveTranscript.textContent = text ? `Heard: “${text}”` : "";
       if (text) sendMessage(text);
@@ -524,8 +555,26 @@
     };
   }
 
-  function startListening() {
+  async function ensureMicPermission() {
+    if (micPrimed || !navigator.mediaDevices?.getUserMedia) return true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop());
+      micPrimed = true;
+      return true;
+    } catch (_) {
+      voiceStatus.textContent =
+        "Mic permission denied — allow microphone, or type below";
+      return false;
+    }
+  }
+
+  async function startListening() {
     if (!recognition || busy || listening) return;
+    // iOS audio session: stop TTS before opening the mic.
+    stopSpeaking();
+    const ok = await ensureMicPermission();
+    if (!ok) return;
     try {
       recognition.start();
     } catch (_) {
@@ -534,7 +583,7 @@
   }
 
   function stopListening() {
-    if (!recognition || !listening) return;
+    if (!recognition) return;
     try {
       recognition.stop();
     } catch (_) {
@@ -549,6 +598,11 @@
     stopSpeaking();
     setBusy(true);
     try {
+      if (!API_BASE && /\.vercel\.app$/i.test(location.hostname)) {
+        throw new Error(
+          "API not linked — set Vercel env AAS_API_BASE to your Railway URL, then redeploy"
+        );
+      }
       const res = await fetch(apiUrl("/session"), { method: "POST" });
       if (!res.ok) throw new Error(`Could not start session (${res.status})`);
       const data = await res.json();
@@ -582,10 +636,10 @@
       setMeta(data.state, sessionId);
       presentAssistantMessages(data.messages || []);
       speakTexts(data.messages || []);
-      voiceStatus.textContent = "Hold to talk · release to send";
+      voiceStatus.textContent = micHint();
     } catch (err) {
       errorTurn(err.message || "Something went wrong");
-      voiceStatus.textContent = "Hold to talk · release to send";
+      voiceStatus.textContent = micHint();
     } finally {
       setBusy(false);
     }
@@ -603,37 +657,47 @@
   restartBtn.addEventListener("click", restartSession);
 
   // Unlock browser TTS on first real gesture (page-load speech is blocked).
-  ["pointerdown", "keydown"].forEach((evt) => {
+  // iOS often requires touchend (not only touchstart) to unlock audio.
+  ["pointerdown", "pointerup", "keydown"].forEach((evt) => {
     document.addEventListener(evt, unlockTts, { once: true, capture: true });
   });
 
-  micBtn.addEventListener("mousedown", (e) => {
-    e.preventDefault();
-    suppressPendingSpeech = true;
-    unlockTts();
-    startListening();
-  });
-  micBtn.addEventListener("mouseup", (e) => {
-    e.preventDefault();
-    stopListening();
-  });
-  micBtn.addEventListener("mouseleave", () => {
-    if (listening) stopListening();
-  });
-  micBtn.addEventListener(
-    "touchstart",
-    (e) => {
+  if (useTapToTalk) {
+    // Hold-to-talk is unreliable on phones (scroll, accidental release).
+    micBtn.addEventListener("click", async (e) => {
       e.preventDefault();
       suppressPendingSpeech = true;
       unlockTts();
+      if (listening) stopListening();
+      else await startListening();
+    });
+  } else {
+    micBtn.addEventListener("pointerdown", (e) => {
+      if (e.button != null && e.button !== 0) return;
+      e.preventDefault();
+      holdActive = true;
+      suppressPendingSpeech = true;
+      unlockTts();
+      try {
+        micBtn.setPointerCapture(e.pointerId);
+      } catch (_) {
+        /* ignore */
+      }
       startListening();
-    },
-    { passive: false }
-  );
-  micBtn.addEventListener("touchend", (e) => {
-    e.preventDefault();
-    stopListening();
-  });
+    });
+    const endHold = (e) => {
+      if (!holdActive && !listening) return;
+      e.preventDefault();
+      holdActive = false;
+      stopListening();
+    };
+    micBtn.addEventListener("pointerup", endHold);
+    micBtn.addEventListener("pointercancel", endHold);
+    micBtn.addEventListener("lostpointercapture", () => {
+      if (listening) stopListening();
+      holdActive = false;
+    });
+  }
 
   ttsToggle.addEventListener("click", () => {
     unlockTts();
@@ -692,8 +756,9 @@
   syncTtsButton();
   initTtsVoices();
   initSpeech();
-  if (ttsEnabled && window.speechSynthesis) {
-    voiceStatus.textContent = "Tap the mic or a chip to hear the assistant";
-  }
+  voiceStatus.textContent =
+    ttsEnabled && window.speechSynthesis
+      ? `Tap anything once to enable sound · ${micHint()}`
+      : micHint();
   createSession();
 })();

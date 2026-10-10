@@ -119,11 +119,12 @@ html.dark .grid-fade {
   z-index: 1;
   width: min(1120px, calc(100% - 2rem));
   margin: 0 auto;
-  padding: 1.35rem 0 1.5rem;
+  padding: 1.35rem 0 calc(1.5rem + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
   gap: 1.1rem;
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 /* Top bar */
@@ -403,6 +404,39 @@ html.dark .rail-btn-danger:hover { color: #f0a8a8; }
   min-height: 520px;
   transition: border-color 220ms ease, box-shadow 220ms ease;
 }
+@media (max-width: 640px) {
+  .call-stage {
+    min-height: 0;
+    padding: 1.25rem 1rem 1rem;
+  }
+  .orbit {
+    inset: 6% 0 auto;
+    height: 150px;
+  }
+  .orbit-ring.r3 { display: none; }
+  .mic-orb {
+    width: 6.6rem;
+    height: 6.6rem;
+  }
+  .voice-status { font-size: 0.95rem; }
+  .action-chip {
+    min-height: 44px;
+    padding: 0.65rem 1rem;
+  }
+  .composer-fallback {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    margin-top: 1rem;
+    padding: 0.75rem 0 calc(0.35rem + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, transparent, var(--panel-solid) 28%);
+  }
+  .composer-fallback input,
+  .composer-fallback button {
+    min-height: 44px;
+    font-size: 16px; /* prevents iOS input zoom */
+  }
+}
 html.dark .call-stage {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 40%),
@@ -499,6 +533,10 @@ html.dark .call-stage {
   cursor: pointer;
   background: transparent;
   transition: transform 140ms ease;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .mic-orb:hover { transform: scale(1.03); }
 .mic-orb:active { transform: scale(0.96); }
