@@ -18,6 +18,25 @@ def _env(name: str, default: str = "") -> str:
     return (os.getenv(name) or default).strip()
 
 
+def _materialize_json_file(raw_env: str, path_env: str, default_tmp: str) -> str:
+    """
+    Write JSON from an env var to a file path (cloud deploy).
+
+    Returns the path to use (existing path env, or temp file written from JSON).
+    """
+    path = _env(path_env)
+    raw = _env(raw_env)
+    if not raw:
+        return path
+    target = Path(path) if path else Path(default_tmp)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(raw, encoding="utf-8")
+        return str(target)
+    except OSError:
+        return path
+
+
 def _materialize_service_account_file() -> str:
     """
     Prefer GOOGLE_SERVICE_ACCOUNT_FILE path.
@@ -25,17 +44,35 @@ def _materialize_service_account_file() -> str:
     On Railway/Cloud, paste the JSON into GOOGLE_SERVICE_ACCOUNT_JSON and we
     write it to a temp file at boot.
     """
-    path = _env("GOOGLE_SERVICE_ACCOUNT_FILE")
-    raw = _env("GOOGLE_SERVICE_ACCOUNT_JSON")
-    if not raw:
-        return path
-    target = Path(path) if path else Path("/tmp/google-service-account.json")
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(raw, encoding="utf-8")
-        return str(target)
-    except OSError:
-        return path
+    return _materialize_json_file(
+        "GOOGLE_SERVICE_ACCOUNT_JSON",
+        "GOOGLE_SERVICE_ACCOUNT_FILE",
+        "/tmp/google-service-account.json",
+    )
+
+
+def _materialize_oauth_files() -> tuple[str, str]:
+    """
+    Local: credentials.json + token.json on disk.
+
+    Railway: paste file contents into GOOGLE_CLIENT_SECRETS_JSON and
+    GOOGLE_TOKEN_JSON (OAuth client secrets + refresh token).
+    """
+    secrets = _materialize_json_file(
+        "GOOGLE_CLIENT_SECRETS_JSON",
+        "GOOGLE_CLIENT_SECRETS",
+        "/tmp/google-credentials.json",
+    )
+    token = _materialize_json_file(
+        "GOOGLE_TOKEN_JSON",
+        "GOOGLE_TOKEN_PATH",
+        "/tmp/google-token.json",
+    )
+    if not secrets:
+        secrets = "credentials.json"
+    if not token:
+        token = "token.json"
+    return secrets, token
 
 
 @dataclass(frozen=True)
@@ -57,6 +94,7 @@ class GoogleMcpConfig:
     @classmethod
     def from_env(cls) -> "GoogleMcpConfig":
         sa_raw = _materialize_service_account_file()
+        oauth_secrets, oauth_token = _materialize_oauth_files()
         return cls(
             gemini_api_key=_env("GEMINI_API_KEY"),
             gemini_model=_env("GEMINI_MODEL", "gemini-3.8-flash"),
@@ -67,10 +105,8 @@ class GoogleMcpConfig:
                 "SECURE_LINK_TEMPLATE",
                 "https://example.com/complete?ref={code}",
             ),
-            oauth_client_secrets=Path(
-                _env("GOOGLE_CLIENT_SECRETS", "credentials.json")
-            ),
-            oauth_token_path=Path(_env("GOOGLE_TOKEN_PATH", "token.json")),
+            oauth_client_secrets=Path(oauth_secrets),
+            oauth_token_path=Path(oauth_token),
             service_account_file=Path(sa_raw) if sa_raw else Path(""),
             mcp_server_url=_env(
                 "MCP_SERVER_URL",
@@ -121,7 +157,8 @@ class GoogleMcpConfig:
         has_oauth = self.oauth_client_secrets.exists() or self.oauth_token_path.exists()
         if not has_sa and not has_oauth:
             errors.append(
-                "Google Calendar auth missing: set GOOGLE_SERVICE_ACCOUNT_FILE or OAuth "
-                "GOOGLE_CLIENT_SECRETS / GOOGLE_TOKEN_PATH"
+                "Google Calendar auth missing: set GOOGLE_SERVICE_ACCOUNT_JSON "
+                "or OAuth GOOGLE_CLIENT_SECRETS_JSON + GOOGLE_TOKEN_JSON "
+                "(or local credentials.json / token.json)"
             )
         return errors
