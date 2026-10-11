@@ -64,13 +64,13 @@
   function callHint() {
     if (voiceTransport === "elevenlabs") {
       return callActive
-        ? "On call with Holdroom · speak naturally"
+        ? "On call with Lockline · speak naturally"
         : "Start call — ElevenLabs voice agent";
     }
     if (!recognition) return "Type below or tap a suggested reply";
     return callActive
       ? "Listening for your turn…"
-      : "Start call for continuous conversation";
+      : "Start call — speak freely, Lockline replies";
   }
 
   function clearListenResume() {
@@ -554,7 +554,7 @@
       return;
     }
     speechSupport.textContent =
-      "Continuous call · Chrome / Edge recommended · speak after Holdroom finishes";
+      "Continuous call · Chrome / Edge recommended · speak after Lockline finishes";
     micBtn.setAttribute("aria-label", "Start call");
     recognition = new SR();
     recognition.lang = "en-US";
@@ -741,7 +741,7 @@
         if (recognition) {
           callActive = true;
           syncCallChrome();
-          voiceStatus.textContent = "Browser call — speak after Holdroom";
+          voiceStatus.textContent = "Browser call — speak after Lockline";
           if (!pendingSpeech && !callStage.classList.contains("is-speaking")) {
             scheduleListenAfterSpeak();
           }
@@ -750,7 +750,7 @@
       return;
     }
 
-    voiceStatus.textContent = "Call started — speak after Holdroom";
+    voiceStatus.textContent = "Call started — speak after Lockline";
     if (!callStage.classList.contains("is-speaking") && !pendingSpeech) {
       scheduleListenAfterSpeak();
     }
@@ -792,7 +792,7 @@
         voiceTransport = "elevenlabs";
         if (deckLabel) deckLabel.textContent = "ElevenLabs line";
         speechSupport.textContent =
-          "ElevenLabs Conversational AI · custom LLM → Holdroom Orchestrator";
+          "ElevenLabs Conversational AI · custom LLM → Lockline Orchestrator";
         if (elevenMount) {
           elevenMount.classList.remove("hidden");
           elevenMount.innerHTML =

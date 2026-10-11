@@ -1,11 +1,11 @@
 # Deployment plan — Advisor Appointment Scheduler
 
-**Hosts:** Railway (backend API) + Vercel (Holdroom voice UI)  
+**Hosts:** Railway (backend API) + Vercel (Lockline voice UI)  
 **Repo:** `https://github.com/ambrosh7/advisor-appointment-scheduler` (or your fork)  
 **Public demo:** https://advisor-appointment-scheduler-pd5t-eight.vercel.app  
 **Detail companion:** [`docs/deploy-railway-vercel.md`](./docs/deploy-railway-vercel.md)
 
-This plan deploys the **entire product**: FastAPI Orchestrator (booking brain, Google/MCP, optional Vapi) **and** the Holdroom voice console in `web/`.
+This plan deploys the **entire product**: FastAPI Orchestrator (booking brain, Google/MCP, optional Vapi) **and** the Lockline voice console in `web/`.
 
 ---
 
@@ -178,9 +178,9 @@ For an [ElevenLabs-style continuous voice agent](https://join.elevenlabs.io/api/
 
 1. Create a Conversational AI agent
 2. Point custom LLM at Railway `https://<host>/v1`
-3. Set `ELEVENLABS_AGENT_ID` on Railway — Holdroom UI uses Start call + `@elevenlabs/client`
+3. Set `ELEVENLABS_AGENT_ID` on Railway — Lockline UI uses Start call + `@elevenlabs/client`
 
-Without an agent id, Holdroom uses **browser continuous conversation** (auto-listen after each reply).
+Without an agent id, Lockline uses **browser continuous conversation** (auto-listen after each reply).
 
 In Vapi assistant → custom LLM base URL:
 
