@@ -215,19 +215,20 @@ class LlmExtractor:
         if not self._api_key or state in _RULES_ONLY_STATES:
             return rules
 
-        # If rules already resolved the turn clearly, skip the LLM round-trip.
-        if rules.acknowledged_disclaimer or rules.confirmed or rules.intent is not None:
-            if rules.topic or rules.slot_choice or rules.preferred_date_ist or rules.time_window:
-                return rules
-            if rules.intent is not None or rules.acknowledged_disclaimer or rules.confirmed:
-                # Intent/ack/confirm alone is enough for routing states.
-                if state in (
-                    "INTENT_ROUTING",
-                    "DISCLAIMER_AWAIT_ACK",
-                    "BOOK_CONFIRM",
-                    "CANCEL_CONFIRM",
-                ):
-                    return rules
+        intent_known = bool(rules.intent and rules.intent != "unknown")
+        # Skip Gemini when rules already resolved the turn (avoids stalls + crashes).
+        if state == "INTENT_ROUTING" and intent_known:
+            return rules
+        if rules.acknowledged_disclaimer or rules.confirmed:
+            return rules
+        if (
+            rules.topic
+            or rules.slot_choice
+            or rules.date_phrase
+            or rules.time_window
+            or rules.booking_code_guess
+        ):
+            return rules
 
         try:
             timeout_s = float(os.getenv("GEMINI_NLU_TIMEOUT_S", "8") or "8")
@@ -242,7 +243,7 @@ class LlmExtractor:
                 ext.acknowledged_disclaimer = True
             if rules.confirmed:
                 ext.confirmed = True
-            if rules.intent is not None and ext.intent is None:
+            if intent_known and (not ext.intent or ext.intent == "unknown"):
                 ext.intent = rules.intent
             return ext
         except FuturesTimeout:

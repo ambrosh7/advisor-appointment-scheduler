@@ -269,7 +269,23 @@ def create_app(
                 surface="chat",
             ),
         )
-        turn = orchestrator.handle(body.text, session)
+        try:
+            turn = orchestrator.handle(body.text, session)
+        except Exception as exc:  # noqa: BLE001 — surface clean JSON to the voice UI
+            logger.exception(
+                "turn_failed session_id=%s",
+                session_id,
+                extra=bind_context(
+                    correlation_id=corr,
+                    session_id=session_id,
+                    event="turn_failed",
+                    surface="chat",
+                ),
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="Something went wrong processing that reply. Please try again.",
+            ) from exc
         return TurnOut(
             messages=turn.messages,
             state=turn.state.value,

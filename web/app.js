@@ -617,6 +617,22 @@
     }
   }
 
+  async function readApiError(res) {
+    const text = await res.text().catch(() => "");
+    try {
+      const detail = JSON.parse(text);
+      if (typeof detail.detail === "string") return detail.detail;
+      if (Array.isArray(detail.detail)) {
+        return detail.detail.map((d) => d.msg || JSON.stringify(d)).join("; ");
+      }
+    } catch (_) {
+      /* plain text body */
+    }
+    const trimmed = (text || "").trim();
+    if (trimmed && trimmed.length < 240) return trimmed;
+    return `Request failed (${res.status})`;
+  }
+
   async function sendMessage(text) {
     if (!sessionId || busy || !text.trim()) return;
     userTurn(text.trim());
@@ -628,17 +644,20 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: text.trim() }),
       });
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || `Request failed (${res.status})`);
-      }
+      if (!res.ok) throw new Error(await readApiError(res));
       const data = await res.json();
       setMeta(data.state, sessionId);
       presentAssistantMessages(data.messages || []);
       speakTexts(data.messages || []);
       voiceStatus.textContent = micHint();
     } catch (err) {
-      errorTurn(err.message || "Something went wrong");
+      const msg = String(err && err.message ? err.message : err);
+      // Safari often surfaces network/HTTP failures as "Load failed"
+      errorTurn(
+        /load failed|failed to fetch|networkerror/i.test(msg)
+          ? "Connection glitch — tap a suggestion or type again"
+          : msg || "Something went wrong"
+      );
       voiceStatus.textContent = micHint();
     } finally {
       setBusy(false);
