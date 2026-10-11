@@ -822,47 +822,152 @@ html.dark .end-call {
   color: var(--ink-mute);
 }
 
-.booking-card {
-  margin-top: 1rem;
-  padding: 0.95rem 1rem;
-  border-radius: 0.9rem;
-  border: 1px solid color-mix(in srgb, var(--forest) 40%, var(--line));
-  background: color-mix(in srgb, var(--mint) 35%, var(--panel-solid));
+.confirm-sheet {
+  position: relative;
+  padding: 1.15rem 1.15rem 1.25rem;
+  border-radius: 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--forest) 28%, var(--line));
+  background:
+    linear-gradient(165deg, color-mix(in srgb, var(--mint) 55%, transparent), transparent 55%),
+    var(--panel-solid);
+  overflow: hidden;
 }
-.booking-card .who {
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+.confirm-sheet::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, var(--copper), var(--forest));
+}
+.confirm-sheet.is-waitlist::before {
+  background: linear-gradient(180deg, #c48a3a, var(--copper));
+}
+.confirm-sheet.is-confirm::before {
+  background: linear-gradient(180deg, var(--forest), #2a7a6c);
+}
+.confirm-badge {
+  display: inline-block;
+  font-size: 0.66rem;
+  font-weight: 750;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--forest);
   margin-bottom: 0.45rem;
 }
-.code-row {
+.confirm-title {
+  margin: 0 0 1rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.55rem, 3.2vw, 2rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--ink);
+}
+.confirm-code {
+  margin-bottom: 1rem;
+  padding: 0.85rem 0.95rem;
+  border-radius: 0.85rem;
+  border: 1px dashed color-mix(in srgb, var(--forest) 35%, var(--line));
+  background: color-mix(in srgb, var(--mint) 25%, var(--panel-solid));
+}
+.confirm-code-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  margin-bottom: 0.35rem;
+}
+.confirm-code-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  flex-wrap: wrap;
-  font-size: 0.95rem;
 }
-.code-row button {
+.confirm-code-value {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 1.45rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+.confirm-code-row button {
   appearance: none;
   border: 1px solid var(--line);
   background: var(--panel-solid);
-  border-radius: 0.5rem;
-  padding: 0.35rem 0.65rem;
+  border-radius: 0.55rem;
+  padding: 0.4rem 0.75rem;
   font: inherit;
   font-size: 0.75rem;
   font-weight: 700;
   cursor: pointer;
   color: var(--ink);
 }
-.booking-card a {
-  display: inline-block;
-  margin-top: 0.65rem;
-  color: var(--forest);
-  font-weight: 650;
-  font-size: 0.85rem;
+.confirm-code-row button:hover {
+  border-color: var(--forest);
+}
+.confirm-facts {
+  margin: 0;
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--line);
+}
+.confirm-fact {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--line);
+  align-items: baseline;
+}
+.confirm-fact dt {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.confirm-fact dd {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 550;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  line-height: 1.35;
+}
+.confirm-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 1.15rem;
+  padding: 0.75rem 1.1rem;
+  border-radius: 0.75rem;
+  background: var(--forest);
+  color: #f4fbf8;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: transform 140ms ease, opacity 140ms ease;
+}
+.confirm-cta:hover {
+  transform: translateY(-1px);
+  opacity: 0.92;
+}
+.confirm-cta-hint {
+  margin: 0.45rem 0 0;
+  font-size: 0.75rem;
+  color: var(--ink-mute);
+}
+.confirm-note {
+  margin: 1rem 0 0;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--ink-mute);
 }
 
 .promise-strip {

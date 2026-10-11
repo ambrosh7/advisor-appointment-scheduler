@@ -275,6 +275,44 @@
     return m ? m[0] : null;
   }
 
+  function extractField(text, label) {
+    const re = new RegExp(
+      `(?:^|[\\n•]\\s*)${label}:\\s*(.+?)(?=\\s*(?:\\n|•|$))`,
+      "i"
+    );
+    const m = text.match(re);
+    return m ? m[1].trim() : null;
+  }
+
+  function parseBookingSummary(text) {
+    const code = extractBookingCode(text);
+    const url = extractSecureUrl(text);
+    const name = extractField(text, "Name");
+    const topic = extractField(text, "Topic");
+    const slot =
+      extractField(text, "Slot") ||
+      extractField(text, "New slot") ||
+      extractField(text, "Waitlist hold \\(IST\\)") ||
+      extractField(text, "Waitlist hold");
+    const booked = /booked tentatively|placed you on the waitlist|rescheduled|cancelled/i.test(
+      text
+    );
+    const confirming = /please confirm/i.test(text);
+    if (!code && !topic && !slot && !confirming) return null;
+    const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+    const headline = lines[0] || "Booking update";
+    const note = lines.find((l) =>
+      /advisor notification|email draft|follow up|google mcp/i.test(l)
+    );
+    let kind = "info";
+    if (/waitlist/i.test(text)) kind = "waitlist";
+    else if (/cancelled|canceled/i.test(text)) kind = "cancelled";
+    else if (/reschedul/i.test(text)) kind = "reschedule";
+    else if (confirming) kind = "confirm";
+    else if (booked || code) kind = "success";
+    return { kind, headline, name, topic, slot, code, url, note };
+  }
+
   function appendLog(role, text) {
     const line = document.createElement("div");
     line.className = `turn-line ${role}`;
@@ -293,10 +331,12 @@
 
   function showPrompt(text) {
     const slots = extractSlots(text);
-    const code = extractBookingCode(text);
-    const url = extractSecureUrl(text);
+    const summary = parseBookingSummary(text);
 
-    let htmlBody = `<p class="prompt-text">${escapeHtml(text)}</p>`;
+    let htmlBody =
+      summary && (summary.code || summary.kind === "confirm" || summary.topic)
+        ? buildConfirmSheet(summary)
+        : `<p class="prompt-text">${escapeHtml(text)}</p>`;
 
     if (slots.length) {
       htmlBody += `<div class="slot-grid">`;
@@ -311,23 +351,83 @@
       htmlBody += `</div>`;
     }
 
-    if (code) {
-      htmlBody += `
-        <div class="booking-card">
-          <div class="who">Provisional booking</div>
-          <div class="code-row">
-            <span>CODE: <strong>${escapeHtml(code)}</strong></span>
-            <button type="button" data-copy="${escapeHtml(code)}">Copy</button>
-          </div>
-          ${url ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">Open secure details link</a>` : ""}
-        </div>`;
-    }
-
     currentPrompt.classList.remove("prompt-swap");
     void currentPrompt.offsetWidth;
     currentPrompt.innerHTML = htmlBody;
     currentPrompt.classList.add("prompt-swap");
     appendLog("assistant", text);
+  }
+
+  function buildConfirmSheet(summary) {
+    const badge =
+      {
+        success: "Tentative hold locked",
+        waitlist: "Waitlist",
+        confirm: "Review & confirm",
+        reschedule: "Rescheduled",
+        cancelled: "Cancelled",
+        info: "Booking",
+      }[summary.kind] || "Booking";
+
+    const title =
+      summary.kind === "success"
+        ? "You’re booked"
+        : summary.kind === "waitlist"
+          ? "You’re on the waitlist"
+          : summary.kind === "confirm"
+            ? "Confirm this hold"
+            : summary.headline.replace(/\.$/, "");
+
+    const facts = [
+      summary.name && ["Name", summary.name],
+      summary.topic && ["Topic", summary.topic],
+      summary.slot && ["When", summary.slot],
+    ].filter(Boolean);
+
+    let factsHtml = "";
+    if (facts.length) {
+      factsHtml = `<dl class="confirm-facts">`;
+      for (const [label, value] of facts) {
+        factsHtml += `
+          <div class="confirm-fact">
+            <dt>${escapeHtml(label)}</dt>
+            <dd>${escapeHtml(value)}</dd>
+          </div>`;
+      }
+      factsHtml += `</dl>`;
+    }
+
+    const codeHtml = summary.code
+      ? `
+      <div class="confirm-code">
+        <span class="confirm-code-label">Booking code</span>
+        <div class="confirm-code-row">
+          <span class="confirm-code-value">${escapeHtml(summary.code)}</span>
+          <button type="button" data-copy="${escapeHtml(summary.code)}">Copy</button>
+        </div>
+      </div>`
+      : "";
+
+    const ctaHtml = summary.url
+      ? `<a class="confirm-cta" href="${escapeHtml(summary.url)}" target="_blank" rel="noopener">
+          Complete secure details <span aria-hidden="true">→</span>
+        </a>
+        <p class="confirm-cta-hint">Phone, email, and KYC stay off this call.</p>`
+      : "";
+
+    const noteHtml = summary.note
+      ? `<p class="confirm-note">${escapeHtml(summary.note)}</p>`
+      : "";
+
+    return `
+      <article class="confirm-sheet is-${escapeHtml(summary.kind)}" aria-label="Booking summary">
+        <div class="confirm-badge">${escapeHtml(badge)}</div>
+        <h2 class="confirm-title">${escapeHtml(title)}</h2>
+        ${codeHtml}
+        ${factsHtml}
+        ${ctaHtml}
+        ${noteHtml}
+      </article>`;
   }
 
   function userTurn(text) {
