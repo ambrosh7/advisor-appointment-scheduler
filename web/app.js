@@ -637,12 +637,18 @@
     if (!sessionId || busy || !text.trim()) return;
     userTurn(text.trim());
     setBusy(true);
-    voiceStatus.textContent = "Thinking…";
+    const confirmish = /^(confirm|yes|ok|okay|proceed|book it)$/i.test(text.trim());
+    voiceStatus.textContent = confirmish
+      ? "Booking your slot…"
+      : "Thinking…";
+    const controller = new AbortController();
+    const abortTimer = window.setTimeout(() => controller.abort(), 90000);
     try {
       const res = await fetch(apiUrl(`/session/${sessionId}/message`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: text.trim() }),
+        signal: controller.signal,
       });
       if (!res.ok) throw new Error(await readApiError(res));
       const data = await res.json();
@@ -653,13 +659,18 @@
     } catch (err) {
       const msg = String(err && err.message ? err.message : err);
       // Safari often surfaces network/HTTP failures as "Load failed"
-      errorTurn(
-        /load failed|failed to fetch|networkerror/i.test(msg)
-          ? "Connection glitch — tap a suggestion or type again"
-          : msg || "Something went wrong"
-      );
+      if (/abort/i.test(msg)) {
+        errorTurn("That took too long — tap Confirm again (booking uses a faster path now)");
+      } else {
+        errorTurn(
+          /load failed|failed to fetch|networkerror/i.test(msg)
+            ? "Connection glitch — tap a suggestion or type again"
+            : msg || "Something went wrong"
+        );
+      }
       voiceStatus.textContent = micHint();
     } finally {
+      window.clearTimeout(abortTimer);
       setBusy(false);
     }
   }

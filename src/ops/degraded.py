@@ -8,6 +8,8 @@ strings for chat and voice (orchestrator copy).
 from __future__ import annotations
 
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 from typing import Any, List, Optional, Protocol
 
@@ -125,9 +127,10 @@ class GmailOnlyDegradedQueue:
 
 class ResilientBookingSideEffects:
     """
-    Gemini agent → direct tools fallback → Gmail-only degraded queue.
+    Direct tools (default) → optional Gemini → Gmail-only degraded queue.
 
-    Direct path keeps calendar holds working when Gemini is rate-limited.
+    Preferring direct booking avoids multi-minute Gemini tool-calling stalls on Confirm.
+    Set BOOKING_PREFER_DIRECT=false to try Gemini first (legacy).
     """
 
     def __init__(
@@ -142,35 +145,81 @@ class ResilientBookingSideEffects:
         self._direct = direct
 
     def execute(self, request: BookingExecutionRequest) -> BookingExecutionResult:
-        result = self._primary.execute(request)
-        if result.ok:
-            return result
+        prefer_direct = (os.getenv("BOOKING_PREFER_DIRECT") or "true").strip().lower() not in (
+            "0",
+            "false",
+            "no",
+            "off",
+        )
+        gemini_timeout_s = float(os.getenv("BOOKING_GEMINI_TIMEOUT_S", "15") or "15")
+        trace: List[str] = []
+        last_error: Optional[str] = None
+        calendar_event_id: Optional[str] = None
+        gmail_draft_id: Optional[str] = None
+        secure = self._degraded.config.secure_link_for(request.booking_code)
 
-        trace = list(result.tool_trace)
-        last_error = result.error
-
-        if self._direct is not None:
+        def _run_direct() -> Optional[BookingExecutionResult]:
+            if self._direct is None:
+                return None
             direct_result = self._direct.execute(request)
+            nonlocal trace, last_error, calendar_event_id, gmail_draft_id, secure
             trace.extend(direct_result.tool_trace)
-            trace.append("direct_booking_fallback")
             if direct_result.ok:
-                direct_result.tool_trace = trace
+                direct_result.tool_trace = list(trace) + ["direct_booking"]
                 return direct_result
             last_error = direct_result.error or last_error
+            calendar_event_id = direct_result.calendar_event_id or calendar_event_id
+            gmail_draft_id = direct_result.gmail_draft_id or gmail_draft_id
+            secure = direct_result.secure_url or secure
+            return None
+
+        def _run_gemini() -> Optional[BookingExecutionResult]:
+            nonlocal trace, last_error, calendar_event_id, gmail_draft_id, secure
+            try:
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    result = pool.submit(self._primary.execute, request).result(
+                        timeout=max(3.0, gemini_timeout_s)
+                    )
+            except FuturesTimeout:
+                logger.warning(
+                    "booking_gemini_timeout correlation_id=%s timeout_s=%s",
+                    request.correlation_id,
+                    gemini_timeout_s,
+                )
+                last_error = "gemini_booking_timeout"
+                trace.append("gemini_booking_timeout")
+                return None
+            except Exception as exc:  # noqa: BLE001
+                last_error = f"{type(exc).__name__}: {exc}"
+                trace.append("gemini_booking_error")
+                return None
+
+            trace.extend(result.tool_trace)
+            calendar_event_id = result.calendar_event_id or calendar_event_id
+            gmail_draft_id = result.gmail_draft_id or gmail_draft_id
+            secure = result.secure_url or secure
+            if result.ok:
+                result.tool_trace = list(trace)
+                return result
+            last_error = result.error or last_error
+            return None
+
+        order = (_run_direct, _run_gemini) if prefer_direct else (_run_gemini, _run_direct)
+        for step in order:
+            ok_result = step()
+            if ok_result is not None:
+                return ok_result
 
         queued = self._degraded.queue_advisor_draft(request)
         trace = trace + list(queued.tool_trace)
         if queued.tool_trace:
             trace.append("degraded_gmail_queue")
-        secure = result.secure_url or self._degraded.config.secure_link_for(
-            request.booking_code
-        )
         return BookingExecutionResult(
             ok=False,
             booking_code=request.booking_code,
             secure_url=secure,
-            calendar_event_id=result.calendar_event_id,
-            gmail_draft_id=queued.gmail_draft_id or result.gmail_draft_id,
+            calendar_event_id=calendar_event_id,
+            gmail_draft_id=queued.gmail_draft_id or gmail_draft_id,
             tool_trace=trace,
             error=last_error,
             degraded=True,
