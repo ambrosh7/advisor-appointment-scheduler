@@ -3,9 +3,25 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from typing import Any, Optional, Protocol
+
+logger = logging.getLogger(__name__)
+
+# States where rules are enough — calling Gemini here adds multi-second stalls.
+_RULES_ONLY_STATES = frozenset(
+    {
+        "DISCLAIMER_AWAIT_ACK",
+        "COLLECT_NAME",
+        "BOOK_CONFIRM",
+        "CANCEL_CONFIRM",
+        "CLOSE",
+        "GREET",
+    }
+)
 
 from domain.enums import Intent
 from nlu.advice import detect_investment_advice
@@ -195,25 +211,49 @@ class LlmExtractor:
         state: str,
         last_assistant_question: str = "",
     ) -> StructuredExtraction:
-        if not self._api_key:
-            return self._fallback.extract(transcript, state, last_assistant_question)
+        rules = self._fallback.extract(transcript, state, last_assistant_question)
+        if not self._api_key or state in _RULES_ONLY_STATES:
+            return rules
+
+        # If rules already resolved the turn clearly, skip the LLM round-trip.
+        if rules.acknowledged_disclaimer or rules.confirmed or rules.intent is not None:
+            if rules.topic or rules.slot_choice or rules.preferred_date_ist or rules.time_window:
+                return rules
+            if rules.intent is not None or rules.acknowledged_disclaimer or rules.confirmed:
+                # Intent/ack/confirm alone is enough for routing states.
+                if state in (
+                    "INTENT_ROUTING",
+                    "DISCLAIMER_AWAIT_ACK",
+                    "BOOK_CONFIRM",
+                    "CANCEL_CONFIRM",
+                ):
+                    return rules
 
         try:
-            raw = self._call_gemini(transcript, state, last_assistant_question)
+            timeout_s = float(os.getenv("GEMINI_NLU_TIMEOUT_S", "8") or "8")
+            raw = self._call_gemini(
+                transcript, state, last_assistant_question, timeout_s=timeout_s
+            )
             data = _parse_json_object(raw)
             ext = StructuredExtraction.from_dict(data)
             # Rules own clear yes/ack phrases — LLM often leaves these false
             # (prompt says disclaimer is orchestrator-owned).
-            rules = self._fallback.extract(transcript, state, last_assistant_question)
             if rules.acknowledged_disclaimer:
                 ext.acknowledged_disclaimer = True
             if rules.confirmed:
                 ext.confirmed = True
+            if rules.intent is not None and ext.intent is None:
+                ext.intent = rules.intent
             return ext
+        except FuturesTimeout:
+            logger.warning("gemini_nlu_timeout state=%s; using rules", state)
+            return rules
         except Exception:
-            return self._fallback.extract(transcript, state, last_assistant_question)
+            return rules
 
-    def _call_gemini(self, transcript: str, state: str, last_q: str) -> str:
+    def _call_gemini(
+        self, transcript: str, state: str, last_q: str, *, timeout_s: float = 8.0
+    ) -> str:
         try:
             from google import genai
             from google.genai import types
@@ -222,15 +262,20 @@ class LlmExtractor:
 
         client = genai.Client(api_key=self._api_key)
         user = build_user_prompt(transcript, state, last_q)
-        response = client.models.generate_content(
-            model=self._model,
-            contents=user,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                response_mime_type="application/json",
-            ),
-        )
-        return response.text or ""
+
+        def _run() -> str:
+            response = client.models.generate_content(
+                model=self._model,
+                contents=user,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    response_mime_type="application/json",
+                ),
+            )
+            return response.text or ""
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(_run).result(timeout=max(1.0, timeout_s))
 
 
 def _parse_json_object(raw: str) -> dict[str, Any]:

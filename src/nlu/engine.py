@@ -176,7 +176,16 @@ def build_default_nlu_engine(
     import os
 
     clock = clock or SystemClock()
-    want_llm = use_llm if use_llm is not None else bool(os.getenv("GEMINI_API_KEY"))
+    if use_llm is not None:
+        want_llm = use_llm
+    else:
+        flag = (os.getenv("NLU_USE_LLM") or "").strip().lower()
+        if flag in ("0", "false", "no", "off"):
+            want_llm = False
+        elif flag in ("1", "true", "yes", "on"):
+            want_llm = True
+        else:
+            want_llm = bool(os.getenv("GEMINI_API_KEY"))
     extractor: StructuredExtractor
     if want_llm:
         model = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip() or "gemini-3.8-flash"
