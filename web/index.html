@@ -3,153 +3,140 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Advisor Appointment Scheduler</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>Holdroom — Advisor booking by voice</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <script>
-    tailwind.config = {
-      darkMode: "class",
-      theme: {
-        extend: {
-          fontFamily: {
-            display: ["Fraunces", "Georgia", "serif"],
-            sans: ["Outfit", "system-ui", "sans-serif"],
-          },
-        },
-      },
-    };
-  </script>
-  <link rel="stylesheet" href="/static/styles.css?v=product-5" />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600;6..72,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v=holdroom-1" />
 </head>
-<body class="font-sans antialiased min-h-screen theme-transition">
+<body class="theme-transition">
   <div class="atmosphere" aria-hidden="true">
-    <div class="mesh mesh-a"></div>
-    <div class="mesh mesh-b"></div>
-    <div class="mesh mesh-c"></div>
-    <div class="grid-fade"></div>
+    <div class="wash wash-a"></div>
+    <div class="wash wash-b"></div>
+    <div class="stripe-field"></div>
     <div class="grain"></div>
   </div>
 
   <div class="shell">
-    <header class="topbar">
-      <div class="brand-block">
-        <div class="mark" aria-hidden="true">
-          <svg viewBox="0 0 40 40" fill="none">
-            <circle cx="20" cy="20" r="18" stroke="currentColor" stroke-width="1.5" opacity="0.35"/>
-            <path d="M20 10v11l7 4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-            <circle cx="20" cy="20" r="2.2" fill="currentColor"/>
-          </svg>
+    <header class="masthead">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <span class="mark-ring"></span>
+          <span class="mark-dot"></span>
         </div>
-        <div class="brand-copy">
-          <p class="eyebrow">Live booking · IST</p>
-          <h1>Advisor Appointment Scheduler</h1>
-          <p class="lede">Speak to lock a tentative advisor slot. No personal details on this call.</p>
+        <div class="brand-text">
+          <p class="brand-name">Holdroom</p>
+          <p class="brand-tag">Advisor booking by voice · IST</p>
         </div>
       </div>
 
-      <div class="top-actions">
+      <div class="mast-controls">
         <div class="live-pill" id="livePill" data-mode="idle">
           <span class="live-dot"></span>
           <span id="livePillText">Ready</span>
         </div>
-        <button type="button" id="ttsToggle" class="rail-btn">TTS on</button>
-        <button type="button" id="stopSpeakBtn" class="rail-btn">Stop</button>
-        <button type="button" id="themeToggleBtn" class="rail-btn" aria-label="Toggle theme">
+        <button type="button" id="ttsToggle" class="ctrl">TTS on</button>
+        <button type="button" id="stopSpeakBtn" class="ctrl">Stop</button>
+        <button type="button" id="themeToggleBtn" class="ctrl" aria-label="Toggle theme">
           <span id="themeLabel">Dark</span>
         </button>
-        <button type="button" id="restartBtn" class="rail-btn rail-btn-danger">Restart</button>
+        <button type="button" id="restartBtn" class="ctrl ctrl-warn">Restart</button>
       </div>
     </header>
 
-    <section class="progress-band" aria-label="Booking progress">
-      <div class="progress-track">
+    <p class="product-line">
+      Lock a <em>tentative</em> advisor slot in under a minute.
+      No phone, email, or account details on this call.
+    </p>
+
+    <section class="journey" aria-label="Booking progress">
+      <div class="journey-track">
         <div class="progress-fill" id="progressFill"></div>
       </div>
-      <ol id="stageStepper" class="stage-stepper">
-        <li data-step="0" class="stage-step is-active"><span>1</span><em>Acknowledge</em></li>
-        <li data-step="1" class="stage-step"><span>2</span><em>Name</em></li>
-        <li data-step="2" class="stage-step"><span>3</span><em>Intent</em></li>
-        <li data-step="3" class="stage-step"><span>4</span><em>Topic</em></li>
-        <li data-step="4" class="stage-step"><span>5</span><em>Time</em></li>
-        <li data-step="5" class="stage-step"><span>6</span><em>Pick slot</em></li>
-        <li data-step="6" class="stage-step"><span>7</span><em>Confirm</em></li>
-        <li data-step="7" class="stage-step"><span>8</span><em>Done</em></li>
+      <ol id="stageStepper" class="journey-steps">
+        <li data-step="0" class="stage-step is-active"><span>01</span><em>Acknowledge</em></li>
+        <li data-step="1" class="stage-step"><span>02</span><em>Name</em></li>
+        <li data-step="2" class="stage-step"><span>03</span><em>Intent</em></li>
+        <li data-step="3" class="stage-step"><span>04</span><em>Topic</em></li>
+        <li data-step="4" class="stage-step"><span>05</span><em>Time</em></li>
+        <li data-step="5" class="stage-step"><span>06</span><em>Slot</em></li>
+        <li data-step="6" class="stage-step"><span>07</span><em>Confirm</em></li>
+        <li data-step="7" class="stage-step"><span>08</span><em>Done</em></li>
       </ol>
-      <div class="progress-meta">
-        <span>Now: <strong id="stepLabel">Acknowledge</strong></span>
-        <span class="meta-sep" aria-hidden="true">·</span>
+      <div class="journey-meta">
+        <span>Now <strong id="stepLabel">Acknowledge</strong></span>
         <span id="flowHint" class="flow-hint"></span>
-        <span class="meta-sep" aria-hidden="true">·</span>
         <span class="mono" id="sessionLabel">Session —</span>
         <span id="stateLabel" class="sr-only">—</span>
       </div>
     </section>
 
-    <main class="stage-grid">
-      <section id="callStage" class="call-stage">
-        <div class="orbit" aria-hidden="true">
-          <span class="orbit-ring r1"></span>
-          <span class="orbit-ring r2"></span>
-          <span class="orbit-ring r3"></span>
-        </div>
+    <main class="studio">
+      <section id="callStage" class="voice-deck">
+        <div class="deck-label">Speak</div>
 
-        <div class="waveform" id="waveform" aria-hidden="true">
-          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        <div class="sonic" aria-hidden="true">
+          <div class="waveform" id="waveform">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
         </div>
 
         <button type="button" id="micBtn" class="mic-orb" aria-label="Tap to talk">
+          <span class="mic-halo" aria-hidden="true"></span>
           <span class="mic-core">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
             </svg>
           </span>
           <span class="mic-rings" aria-hidden="true"></span>
         </button>
 
-        <div class="call-copy">
-          <p class="voice-status" id="voiceStatus">Tap mic to talk · or type below</p>
+        <div class="voice-copy">
+          <p class="voice-status" id="voiceStatus">Tap the mic to talk</p>
           <p class="live-transcript" id="liveTranscript"></p>
           <p class="speech-support" id="speechSupport"></p>
         </div>
 
-        <div class="suggest-label">Suggested replies</div>
-        <div class="action-chips" id="quickReplies"></div>
+        <div class="suggest-block">
+          <div class="suggest-label">Quick replies</div>
+          <div class="action-chips" id="quickReplies"></div>
+        </div>
 
         <form id="composer" class="composer-fallback">
-          <input id="chatInput" type="text" autocomplete="off" placeholder="Type instead…" />
+          <input id="chatInput" type="text" autocomplete="off" placeholder="Or type your reply…" />
           <button type="submit" id="sendBtn" disabled>Send</button>
         </form>
       </section>
 
-      <aside class="prompt-column">
-        <div class="prompt-panel">
-          <div class="prompt-meta">
-            <div class="assistant-id">
-              <span class="assistant-avatar">A</span>
-              <div>
-                <span class="prompt-kicker">Advisor intake</span>
-                <span class="prompt-sub">Live response</span>
-              </div>
-            </div>
-            <span id="typingIndicator" class="typing-dot hidden">Thinking</span>
-          </div>
-          <div id="currentPrompt" class="current-prompt" aria-live="polite">
-            <p class="prompt-placeholder">Connecting your session…</p>
-          </div>
+      <aside class="reply-deck">
+        <div class="deck-label-row">
+          <div class="deck-label">Holdroom</div>
+          <span id="typingIndicator" class="typing-dot hidden">Working</span>
         </div>
 
-        <div class="trust-row">
-          <div class="trust-item"><strong>Private session</strong><span>Clears automatically when you leave</span></div>
-          <div class="trust-item"><strong>No personal details</strong><span>Phone and email collected later via secure link</span></div>
-          <div class="trust-item"><strong>India time (IST)</strong><span>Locks a tentative advisor slot only</span></div>
+        <div id="currentPrompt" class="current-prompt" aria-live="polite">
+          <p class="prompt-placeholder">Opening your private booking line…</p>
+        </div>
+
+        <div class="promise-strip">
+          <div class="promise">
+            <strong>Ephemeral</strong>
+            <span>Session clears when you leave</span>
+          </div>
+          <div class="promise">
+            <strong>No PII here</strong>
+            <span>Details via secure link later</span>
+          </div>
+          <div class="promise">
+            <strong>IST holds</strong>
+            <span>Tentative calendar lock only</span>
+          </div>
         </div>
 
         <details class="turn-log-wrap" id="turnLogDetails">
           <summary>
-            <span>Turn history</span>
-            <span class="summary-hint">Audit trail</span>
+            <span>Session log</span>
+            <span class="summary-hint">Audit</span>
           </summary>
           <div id="messagesContainer" class="turn-log custom-scrollbar" role="log"></div>
         </details>
@@ -157,12 +144,12 @@
     </main>
 
     <footer class="foot">
-      <span>Advisor Appointment Scheduler is an automated booking proxy. Informational only — not investment advice.</span>
+      <span><strong>Holdroom</strong> is an automated booking proxy — informational only, not investment advice.</span>
       <span>Secure details link after confirmation</span>
     </footer>
   </div>
 
   <script src="/static/config.js"></script>
-  <script src="/static/app.js?v=product-10"></script>
+  <script src="/static/app.js?v=holdroom-1"></script>
 </body>
 </html>

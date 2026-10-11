@@ -1,10 +1,11 @@
 # Deployment plan — Advisor Appointment Scheduler
 
-**Hosts:** Railway (backend API) + Vercel (latest voice-console frontend)  
+**Hosts:** Railway (backend API) + Vercel (Holdroom voice UI)  
 **Repo:** `https://github.com/ambrosh7/advisor-appointment-scheduler` (or your fork)  
+**Public demo:** https://advisor-appointment-scheduler-pd5t-eight.vercel.app  
 **Detail companion:** [`docs/deploy-railway-vercel.md`](./docs/deploy-railway-vercel.md)
 
-This plan deploys the **entire product**: FastAPI Orchestrator (booking brain, Google/MCP, optional Vapi) **and** the current `web/` voice console (hold-to-talk, TTS, stage UI, chips).
+This plan deploys the **entire product**: FastAPI Orchestrator (booking brain, Google/MCP, optional Vapi) **and** the Holdroom voice console in `web/`.
 
 ---
 

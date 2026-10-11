@@ -265,7 +265,7 @@
     if (code) {
       htmlBody += `
         <div class="booking-card">
-          <div class="who" style="font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--sea-deep)">Provisional booking</div>
+          <div class="who">Provisional booking</div>
           <div class="code-row">
             <span>CODE: <strong>${escapeHtml(code)}</strong></span>
             <button type="button" data-copy="${escapeHtml(code)}">Copy</button>
