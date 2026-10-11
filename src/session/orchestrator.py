@@ -257,8 +257,8 @@ class Orchestrator:
             else:
                 self._emit(
                     messages,
-                    "Please share your full name — first and last name — "
-                    "for example, “Priya Sharma”.",
+                    "I still need a name to label the hold — say or type something like "
+                    "“Priya Sharma”, or just your first name.",
                     session,
                 )
             return

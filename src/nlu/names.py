@@ -29,8 +29,9 @@ _BLOCKED = {
 
 def extract_full_name(text: str) -> Optional[str]:
     """
-    Return a normalized full name (2–5 words) or None.
+    Return a normalized display name (1–5 words) or None.
 
+    Prefers first+last, but accepts a single given name for voice demos.
     Rejects phone/email/account-like strings and bare acknowledgements.
     """
     raw = (text or "").strip()
@@ -40,7 +41,7 @@ def extract_full_name(text: str) -> Optional[str]:
     if not cleaned or detect_pii(cleaned):
         return None
     words = cleaned.split()
-    if not (2 <= len(words) <= 5):
+    if not (1 <= len(words) <= 5):
         return None
     if any(w.lower() in _BLOCKED for w in words):
         return None

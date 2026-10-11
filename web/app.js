@@ -119,7 +119,7 @@
 
   const QUICK_BY_STATE = {
     DISCLAIMER_AWAIT_ACK: ["yes", "I understand"],
-    COLLECT_NAME: [],
+    COLLECT_NAME: ["Priya Sharma", "Ambrosh Patel"],
     INTENT_ROUTING: ["book new", "reschedule", "cancel", "what to prepare", "check availability"],
     BOOK_TOPIC: ["KYC Onboarding", "SIP Mandates", "Statements/Tax Docs", "Withdrawals", "Account Changes"],
     BOOK_TIME_PREFERENCE: ["time monday afternoon", "tomorrow morning", "time tuesday evening"],
@@ -249,6 +249,10 @@
     }
     renderStage(nextState);
     renderQuickReplies();
+    if (!callActive && !busy && nextState === "COLLECT_NAME") {
+      voiceStatus.textContent =
+        "Tap a name chip, type your name, or Start call to speak it";
+    }
   }
 
   function extractSlots(text) {
@@ -345,6 +349,14 @@
   function renderQuickReplies() {
     quickEl.innerHTML = "";
     const chips = QUICK_BY_STATE[state] || [];
+    if (state === "COLLECT_NAME") {
+      input.placeholder = "Type your name (e.g. Priya Sharma)…";
+      if (!busy) {
+        queueMicrotask(() => input.focus());
+      }
+    } else {
+      input.placeholder = "Or type your reply…";
+    }
     for (const text of chips) {
       const btn = document.createElement("button");
       btn.type = "button";
