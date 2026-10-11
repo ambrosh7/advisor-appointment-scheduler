@@ -68,6 +68,8 @@ def test_http_custom_llm_endpoint():
     assert r.status_code == 200
     assert r.json()["mode"] == "voice_agent"
     assert r.json()["vapi_custom_llm_path"] == "/v1/chat/completions"
+    assert "elevenlabs_agent_id" in r.json()
+    assert r.json()["custom_llm_base_url"] == "/v1"
 
     r = client.post(
         "/v1/chat/completions",

@@ -173,15 +173,19 @@ def create_app(
     @app.get("/voice/config")
     def voice_config() -> dict:
         """Public voice client config (no secrets)."""
+        eleven_agent = (os.getenv("ELEVENLABS_AGENT_ID") or "").strip() or None
         return {
             "mode": "voice_agent",
             "browser_speech": True,
             "vapi_public_key": (os.getenv("VAPI_PUBLIC_KEY") or "").strip() or None,
             "vapi_assistant_id": (os.getenv("VAPI_ASSISTANT_ID") or "").strip() or None,
             "vapi_custom_llm_path": "/v1/chat/completions",
+            "elevenlabs_agent_id": eleven_agent,
+            "custom_llm_base_url": "/v1",
             "hint": (
-                "Browser mic uses Web Speech API locally. "
-                "Point Vapi custom-LLM base URL at this server /v1 for phone/WebRTC."
+                "Browser: continuous conversation via Web Speech, or ElevenLabs "
+                "Conversational AI when ELEVENLABS_AGENT_ID is set. "
+                "Point ElevenLabs/Vapi custom-LLM at this server /v1."
             ),
         }
 

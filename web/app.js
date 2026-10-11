@@ -16,6 +16,7 @@
   const themeLabel = document.getElementById("themeLabel");
   const restartBtn = document.getElementById("restartBtn");
   const micBtn = document.getElementById("micBtn");
+  const endCallBtn = document.getElementById("endCallBtn");
   const callStage = document.getElementById("callStage");
   const voiceStatus = document.getElementById("voiceStatus");
   const liveTranscript = document.getElementById("liveTranscript");
@@ -26,6 +27,8 @@
   const progressFill = document.getElementById("progressFill");
   const livePill = document.getElementById("livePill");
   const livePillText = document.getElementById("livePillText");
+  const elevenMount = document.getElementById("elevenMount");
+  const deckLabel = document.getElementById("deckLabel");
 
   const API_BASE = String(window.AAS_API_BASE || "")
     .trim()
@@ -49,19 +52,58 @@
   let preferredVoice = null;
   let suppressPendingSpeech = false;
   let micPrimed = false;
-  let holdActive = false;
+  let callActive = false;
+  let listenResumeTimer = null;
+  let elevenAgentId = null;
+  let elevenConversation = null;
+  let voiceTransport = "browser"; // browser | elevenlabs
 
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  const useTapToTalk =
-    window.matchMedia("(pointer: coarse)").matches ||
-    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  function micHint() {
+  function callHint() {
+    if (voiceTransport === "elevenlabs") {
+      return callActive
+        ? "On call with Holdroom · speak naturally"
+        : "Start call — ElevenLabs voice agent";
+    }
     if (!recognition) return "Type below or tap a suggested reply";
-    return useTapToTalk
-      ? "Tap mic to talk · tap again to send"
-      : "Hold to talk · release to send";
+    return callActive
+      ? "Listening for your turn…"
+      : "Start call for continuous conversation";
+  }
+
+  function clearListenResume() {
+    if (listenResumeTimer) {
+      clearTimeout(listenResumeTimer);
+      listenResumeTimer = null;
+    }
+  }
+
+  function syncCallChrome() {
+    callStage.classList.toggle("is-in-call", callActive);
+    micBtn.setAttribute("aria-label", callActive ? "End call" : "Start call");
+    if (endCallBtn) endCallBtn.classList.toggle("hidden", !callActive);
+    if (deckLabel) {
+      deckLabel.textContent =
+        voiceTransport === "elevenlabs"
+          ? callActive
+            ? "Live · ElevenLabs"
+            : "ElevenLabs line"
+          : callActive
+            ? "Live call"
+            : "Voice line";
+    }
+    syncLivePill();
+  }
+
+  function scheduleListenAfterSpeak() {
+    clearListenResume();
+    if (!callActive || voiceTransport !== "browser" || busy || listening) return;
+    listenResumeTimer = window.setTimeout(() => {
+      listenResumeTimer = null;
+      if (callActive && !busy && !listening) startListening({ fromLoop: true });
+    }, 280);
   }
 
   const STAGE_LABELS = [
@@ -119,7 +161,7 @@
   function syncLivePill() {
     if (!livePill || !livePillText) return;
     let mode = "idle";
-    let label = "Ready";
+    let label = callActive ? "On call" : "Ready";
     if (listening) {
       mode = "listening";
       label = "Listening";
@@ -129,6 +171,9 @@
     } else if (busy) {
       mode = "thinking";
       label = "Thinking";
+    } else if (callActive) {
+      mode = "listening";
+      label = "On call";
     }
     livePill.dataset.mode = mode;
     livePillText.textContent = label;
@@ -410,7 +455,7 @@
 
     if (!ttsUnlocked && !opts.force) {
       pendingSpeech = texts;
-      voiceStatus.textContent = "Tap the mic or a chip to hear the assistant";
+      voiceStatus.textContent = "Start call (or tap a chip) to hear the assistant";
       return;
     }
 
@@ -439,16 +484,18 @@
         callStage.classList.remove("is-speaking");
         syncLivePill();
         if (!busy && !listening) {
-          voiceStatus.textContent = micHint();
+          voiceStatus.textContent = callHint();
         }
+        scheduleListenAfterSpeak();
       };
       u.onerror = () => {
         clearSpeakWatchdog();
         callStage.classList.remove("is-speaking");
         syncLivePill();
         if (!busy && !listening) {
-          voiceStatus.textContent = micHint();
+          voiceStatus.textContent = callHint();
         }
+        scheduleListenAfterSpeak();
       };
       try {
         window.speechSynthesis.speak(u);
@@ -488,59 +535,64 @@
       speechSupport.textContent =
         "Voice input unavailable here — use Type / suggested replies (Chrome Android works best)";
       voiceStatus.textContent = "Type below or tap a suggested reply";
-      micBtn.disabled = true;
-      micBtn.setAttribute("aria-label", "Microphone unavailable");
+      if (voiceTransport !== "elevenlabs") {
+        micBtn.disabled = true;
+        micBtn.setAttribute("aria-label", "Microphone unavailable");
+      }
       return;
     }
-    speechSupport.textContent = useTapToTalk
-      ? "Mobile mic · tap to talk (Safari/Chrome)"
-      : "Browser mic · Chrome / Edge recommended";
-    micBtn.setAttribute(
-      "aria-label",
-      useTapToTalk ? "Tap to talk" : "Hold to talk"
-    );
+    speechSupport.textContent =
+      "Continuous call · Chrome / Edge recommended · speak after Holdroom finishes";
+    micBtn.setAttribute("aria-label", "Start call");
     recognition = new SR();
     recognition.lang = "en-US";
-    // Push-to-talk: continuous helps mobile capture; interim can stall on some iOS builds.
     recognition.interimResults = !isIOS;
-    recognition.continuous = useTapToTalk || isIOS;
+    // One utterance per turn; we restart after the assistant speaks.
+    recognition.continuous = false;
 
     recognition.onstart = () => {
       listening = true;
       micBtn.classList.add("listening");
       callStage.classList.add("is-listening");
       syncLivePill();
-      voiceStatus.textContent = useTapToTalk
-        ? "Listening… tap mic again to send"
-        : "Listening… release to send";
+      voiceStatus.textContent = "Listening… speak now";
       liveTranscript.textContent = "";
       finalSpeech = "";
     };
     recognition.onerror = (e) => {
       listening = false;
-      holdActive = false;
       micBtn.classList.remove("listening");
       callStage.classList.remove("is-listening");
       syncLivePill();
       if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         voiceStatus.textContent =
           "Mic blocked — allow microphone in Settings, or type below";
-      } else if (e.error === "no-speech") {
-        voiceStatus.textContent = micHint();
-      } else {
-        voiceStatus.textContent = micHint();
+        if (callActive) endCall({ silent: true });
+        return;
+      }
+      if (e.error === "aborted") {
+        voiceStatus.textContent = callHint();
+        return;
+      }
+      voiceStatus.textContent = callHint();
+      if (callActive && !busy && (e.error === "no-speech" || e.error === "audio-capture")) {
+        scheduleListenAfterSpeak();
       }
     };
     recognition.onend = () => {
       listening = false;
-      holdActive = false;
       micBtn.classList.remove("listening");
       callStage.classList.remove("is-listening");
       syncLivePill();
-      voiceStatus.textContent = micHint();
-      const text = (finalSpeech || liveTranscript.textContent || "").trim();
+      const text = (finalSpeech || "").trim();
       liveTranscript.textContent = text ? `Heard: “${text}”` : "";
-      if (text) sendMessage(text);
+      if (text) {
+        voiceStatus.textContent = "Thinking…";
+        sendMessage(text);
+        return;
+      }
+      voiceStatus.textContent = callHint();
+      if (callActive && !busy) scheduleListenAfterSpeak();
     };
     recognition.onresult = (event) => {
       let interim = "";
@@ -569,12 +621,16 @@
     }
   }
 
-  async function startListening() {
-    if (!recognition || busy || listening) return;
-    // iOS audio session: stop TTS before opening the mic.
-    stopSpeaking();
+  async function startListening(opts = {}) {
+    if (!recognition || busy || listening || !callActive) return;
+    if (voiceTransport !== "browser") return;
+    if (!opts.fromLoop) stopSpeaking();
+    else if (callStage.classList.contains("is-speaking")) return;
     const ok = await ensureMicPermission();
-    if (!ok) return;
+    if (!ok) {
+      endCall({ silent: true });
+      return;
+    }
     try {
       recognition.start();
     } catch (_) {
@@ -589,6 +645,154 @@
     } catch (_) {
       /* ignore */
     }
+  }
+
+  async function startElevenCall() {
+    if (!elevenAgentId) throw new Error("No ElevenLabs agent id");
+    voiceStatus.textContent = "Connecting voice agent…";
+    const mod = await import("https://esm.sh/@elevenlabs/client@1.26.0");
+    const Conversation = mod.Conversation || mod.default?.Conversation;
+    if (!Conversation?.startSession) {
+      throw new Error("ElevenLabs client failed to load");
+    }
+    elevenConversation = await Conversation.startSession({
+      agentId: elevenAgentId,
+      connectionType: "webrtc",
+      onConnect: () => {
+        voiceStatus.textContent = "Connected — speak naturally";
+        syncCallChrome();
+      },
+      onDisconnect: () => {
+        elevenConversation = null;
+        if (callActive) endCall({ silent: true });
+      },
+      onError: (err) => {
+        const msg =
+          (typeof err === "string" && err) ||
+          err?.message ||
+          String(err) ||
+          "Voice agent error";
+        errorTurn(msg);
+        voiceStatus.textContent = msg;
+      },
+      onModeChange: (payload) => {
+        const mode = payload?.mode || payload;
+        callStage.classList.toggle("is-listening", mode === "listening");
+        callStage.classList.toggle("is-speaking", mode === "speaking");
+        micBtn.classList.toggle("listening", mode === "listening");
+        if (mode === "listening") voiceStatus.textContent = "Listening…";
+        else if (mode === "speaking") voiceStatus.textContent = "Speaking…";
+        syncLivePill();
+      },
+      onMessage: (payload) => {
+        const source = payload?.source || payload?.role || "";
+        const text =
+          (typeof payload === "string" && payload) ||
+          payload?.message ||
+          payload?.text ||
+          "";
+        if (!text) return;
+        const fromUser = /user|human/i.test(String(source));
+        if (fromUser) {
+          userTurn(text);
+          liveTranscript.textContent = `Heard: “${text}”`;
+        } else {
+          showPrompt(text);
+          liveTranscript.textContent = "";
+        }
+      },
+    });
+  }
+
+  async function startCall() {
+    if (callActive) return;
+    unlockTts();
+    clearListenResume();
+    const ok = await ensureMicPermission();
+    if (!ok) return;
+
+    callActive = true;
+    syncCallChrome();
+
+    if (voiceTransport === "elevenlabs" && elevenAgentId) {
+      try {
+        await startElevenCall();
+        voiceStatus.textContent = callHint();
+      } catch (err) {
+        callActive = false;
+        syncCallChrome();
+        errorTurn(err.message || "Could not start ElevenLabs call");
+        voiceStatus.textContent =
+          "ElevenLabs unavailable — set agent id or use browser call";
+        // Fall back to browser continuous call
+        voiceTransport = "browser";
+        if (recognition) {
+          callActive = true;
+          syncCallChrome();
+          voiceStatus.textContent = "Browser call — speak after Holdroom";
+          if (!pendingSpeech && !callStage.classList.contains("is-speaking")) {
+            scheduleListenAfterSpeak();
+          }
+        }
+      }
+      return;
+    }
+
+    voiceStatus.textContent = "Call started — speak after Holdroom";
+    if (!callStage.classList.contains("is-speaking") && !pendingSpeech) {
+      scheduleListenAfterSpeak();
+    }
+  }
+
+  async function endCall(opts = {}) {
+    clearListenResume();
+    callActive = false;
+    stopListening();
+    if (!opts.keepSpeech) stopSpeaking();
+    if (elevenConversation) {
+      try {
+        await elevenConversation.endSession();
+      } catch (_) {
+        /* ignore */
+      }
+      elevenConversation = null;
+    }
+    syncCallChrome();
+    if (!opts.silent) voiceStatus.textContent = callHint();
+  }
+
+  async function toggleCall() {
+    suppressPendingSpeech = true;
+    unlockTts();
+    if (callActive) await endCall();
+    else await startCall();
+  }
+
+  async function loadVoiceConfig() {
+    try {
+      const res = await fetch(apiUrl("/voice/config"));
+      if (!res.ok) return;
+      const cfg = await res.json();
+      elevenAgentId =
+        (cfg.elevenlabs_agent_id || window.ELEVENLABS_AGENT_ID || "").trim() ||
+        null;
+      if (elevenAgentId) {
+        voiceTransport = "elevenlabs";
+        if (deckLabel) deckLabel.textContent = "ElevenLabs line";
+        speechSupport.textContent =
+          "ElevenLabs Conversational AI · custom LLM → Holdroom Orchestrator";
+        if (elevenMount) {
+          elevenMount.classList.remove("hidden");
+          elevenMount.innerHTML =
+            `<p class="speech-support">Agent <span class="mono">${escapeHtml(
+              elevenAgentId.slice(0, 12)
+            )}…</span> — Start call for natural turn-taking</p>`;
+        }
+      }
+    } catch (_) {
+      /* offline / CORS — keep browser transport */
+    }
+    syncCallChrome();
   }
 
   async function createSession() {
@@ -608,7 +812,10 @@
       const data = await res.json();
       setMeta(data.state, data.session_id);
       presentAssistantMessages(data.messages || []);
-      speakTexts(data.messages || []);
+      // ElevenLabs owns audio when that transport is active.
+      if (voiceTransport === "browser") {
+        speakTexts(data.messages || []);
+      }
     } catch (err) {
       errorTurn(err.message || "Failed to connect");
       setMeta("error");
@@ -654,8 +861,10 @@
       const data = await res.json();
       setMeta(data.state, sessionId);
       presentAssistantMessages(data.messages || []);
-      speakTexts(data.messages || []);
-      voiceStatus.textContent = micHint();
+      if (voiceTransport === "browser") {
+        speakTexts(data.messages || []);
+      }
+      voiceStatus.textContent = callHint();
     } catch (err) {
       const msg = String(err && err.message ? err.message : err);
       // Safari often surfaces network/HTTP failures as "Load failed"
@@ -668,7 +877,8 @@
             : msg || "Something went wrong"
         );
       }
-      voiceStatus.textContent = micHint();
+      voiceStatus.textContent = callHint();
+      if (callActive && voiceTransport === "browser") scheduleListenAfterSpeak();
     } finally {
       window.clearTimeout(abortTimer);
       setBusy(false);
@@ -677,6 +887,7 @@
 
   async function restartSession() {
     if (!confirm("Restart advisory pre-booking session?")) return;
+    await endCall({ silent: true, keepSpeech: true });
     await createSession();
   }
 
@@ -692,40 +903,14 @@
     document.addEventListener(evt, unlockTts, { once: true, capture: true });
   });
 
-  if (useTapToTalk) {
-    // Hold-to-talk is unreliable on phones (scroll, accidental release).
-    micBtn.addEventListener("click", async (e) => {
+  micBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+    await toggleCall();
+  });
+  if (endCallBtn) {
+    endCallBtn.addEventListener("click", async (e) => {
       e.preventDefault();
-      suppressPendingSpeech = true;
-      unlockTts();
-      if (listening) stopListening();
-      else await startListening();
-    });
-  } else {
-    micBtn.addEventListener("pointerdown", (e) => {
-      if (e.button != null && e.button !== 0) return;
-      e.preventDefault();
-      holdActive = true;
-      suppressPendingSpeech = true;
-      unlockTts();
-      try {
-        micBtn.setPointerCapture(e.pointerId);
-      } catch (_) {
-        /* ignore */
-      }
-      startListening();
-    });
-    const endHold = (e) => {
-      if (!holdActive && !listening) return;
-      e.preventDefault();
-      holdActive = false;
-      stopListening();
-    };
-    micBtn.addEventListener("pointerup", endHold);
-    micBtn.addEventListener("pointercancel", endHold);
-    micBtn.addEventListener("lostpointercapture", () => {
-      if (listening) stopListening();
-      holdActive = false;
+      await endCall();
     });
   }
 
@@ -741,9 +926,12 @@
     // Audible confirmation so users know speakers / TTS work.
     speakTexts(["Voice replies are on"], { force: true });
   });
-  stopSpeakBtn.addEventListener("click", stopSpeaking);
+  stopSpeakBtn.addEventListener("click", () => {
+    stopSpeaking();
+    if (callActive && voiceTransport === "browser") scheduleListenAfterSpeak();
+  });
 
-  document.querySelector(".prompt-column").addEventListener("click", (e) => {
+  document.querySelector(".studio")?.addEventListener("click", (e) => {
     const send = e.target.closest("[data-send]");
     if (send) {
       suppressPendingSpeech = true;
@@ -786,9 +974,12 @@
   syncTtsButton();
   initTtsVoices();
   initSpeech();
-  voiceStatus.textContent =
-    ttsEnabled && window.speechSynthesis
-      ? `Tap anything once to enable sound · ${micHint()}`
-      : micHint();
-  createSession();
+  (async () => {
+    await loadVoiceConfig();
+    voiceStatus.textContent =
+      ttsEnabled && window.speechSynthesis && voiceTransport === "browser"
+        ? `Tap Start call once to enable sound · ${callHint()}`
+        : callHint();
+    await createSession();
+  })();
 })();

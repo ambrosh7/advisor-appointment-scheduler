@@ -460,7 +460,49 @@ html.dark .voice-deck {
 }
 .voice-deck.is-listening { border-color: color-mix(in srgb, var(--copper) 55%, var(--line)); }
 .voice-deck.is-speaking { border-color: color-mix(in srgb, var(--forest) 55%, var(--line)); }
-.voice-deck.is-busy .mic-orb { opacity: 0.55; pointer-events: none; }
+.voice-deck.is-busy:not(.is-in-call) .mic-orb { opacity: 0.55; pointer-events: none; }
+.voice-deck.is-in-call {
+  border-color: color-mix(in srgb, var(--forest) 40%, var(--line));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--forest) 18%, transparent);
+}
+.voice-deck.is-in-call .mic-orb .icon-mic { display: none; }
+.voice-deck.is-in-call .mic-orb .icon-end { display: block; }
+.voice-deck.is-in-call .mic-core {
+  background:
+    radial-gradient(circle at 30% 25%, #7ec8b8, var(--forest) 55%, #0f4a42 100%);
+}
+.mic-orb .icon-end { display: none; width: 2.1rem; height: 2.1rem; }
+
+.call-actions {
+  margin-top: 0.75rem;
+  min-height: 1.5rem;
+}
+.end-call {
+  appearance: none;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid color-mix(in srgb, #b4533a 45%, var(--line));
+  background: color-mix(in srgb, #b4533a 12%, var(--panel-solid));
+  color: #8f2f1c;
+  padding: 0.45rem 0.95rem;
+  border-radius: 0.65rem;
+  cursor: pointer;
+}
+html.dark .end-call {
+  color: #f0b4a4;
+  border-color: color-mix(in srgb, #f0b4a4 35%, var(--line));
+  background: color-mix(in srgb, #b4533a 22%, transparent);
+}
+.end-call.hidden,
+.eleven-mount.hidden { display: none; }
+.eleven-mount {
+  width: 100%;
+  margin-top: 0.5rem;
+  min-height: 2rem;
+}
 
 .sonic {
   width: 100%;

@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600;6..72,700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/styles.css?v=holdroom-1" />
+  <link rel="stylesheet" href="/static/styles.css?v=holdroom-2" />
 </head>
 <body class="theme-transition">
   <div class="atmosphere" aria-hidden="true">
@@ -45,7 +45,7 @@
     </header>
 
     <p class="product-line">
-      Lock a <em>tentative</em> advisor slot in under a minute.
+      A live voice line for <em>tentative</em> advisor holds — natural turns, no hold-to-talk.
       No phone, email, or account details on this call.
     </p>
 
@@ -73,7 +73,7 @@
 
     <main class="studio">
       <section id="callStage" class="voice-deck">
-        <div class="deck-label">Speak</div>
+        <div class="deck-label" id="deckLabel">Voice line</div>
 
         <div class="sonic" aria-hidden="true">
           <div class="waveform" id="waveform">
@@ -81,18 +81,27 @@
           </div>
         </div>
 
-        <button type="button" id="micBtn" class="mic-orb" aria-label="Tap to talk">
+        <button type="button" id="micBtn" class="mic-orb" aria-label="Start call">
           <span class="mic-halo" aria-hidden="true"></span>
           <span class="mic-core">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+            <svg class="icon-mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+            </svg>
+            <svg class="icon-end" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M6 18L18 6M6 6l12 12" />
             </svg>
           </span>
           <span class="mic-rings" aria-hidden="true"></span>
         </button>
 
+        <div class="call-actions">
+          <button type="button" id="endCallBtn" class="end-call hidden">End call</button>
+        </div>
+
+        <div id="elevenMount" class="eleven-mount hidden" aria-live="polite"></div>
+
         <div class="voice-copy">
-          <p class="voice-status" id="voiceStatus">Tap the mic to talk</p>
+          <p class="voice-status" id="voiceStatus">Start call to talk with Holdroom</p>
           <p class="live-transcript" id="liveTranscript"></p>
           <p class="speech-support" id="speechSupport"></p>
         </div>
@@ -150,6 +159,6 @@
   </div>
 
   <script src="/static/config.js"></script>
-  <script src="/static/app.js?v=holdroom-1"></script>
+  <script src="/static/app.js?v=holdroom-2"></script>
 </body>
 </html>

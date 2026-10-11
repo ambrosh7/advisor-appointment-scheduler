@@ -172,7 +172,15 @@ Add preview URLs too if you use them (comma-separated). Redeploy Railway if vari
 4. Confirm Calendar event includes **customer name** + booking code; Docs/Gmail side effects as configured.
 5. If the UI cannot start a session: check `AAS_API_BASE`, Railway `/health`, and `CORS_ORIGINS` (exact `https://` origin).
 
-### Phase 6 — Optional Vapi
+### Phase 6 — Optional voice transport (ElevenLabs / Vapi)
+
+For an [ElevenLabs-style continuous voice agent](https://join.elevenlabs.io/api/conversational-ai), see `docs/elevenlabs-setup.md`:
+
+1. Create a Conversational AI agent
+2. Point custom LLM at Railway `https://<host>/v1`
+3. Set `ELEVENLABS_AGENT_ID` on Railway — Holdroom UI uses Start call + `@elevenlabs/client`
+
+Without an agent id, Holdroom uses **browser continuous conversation** (auto-listen after each reply).
 
 In Vapi assistant → custom LLM base URL:
 
